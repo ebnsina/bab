@@ -13,6 +13,7 @@ crate-type = ["staticlib", "rlib"]
 
 [dependencies]
 anyhow.workspace = true
+bab-config.workspace = true
 bab-input.workspace = true
 bab-pty.workspace = true
 bab-render.workspace = true

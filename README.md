@@ -41,6 +41,7 @@ crates/bab-pty     pseudoterminal · session        done
 crates/bab-text    shaping · font fallback         done
 crates/bab-render  wgpu renderer · glyph atlas     done
 crates/bab-input   keyboard · mouse encoding       done
+crates/bab-config  user configuration              done
 crates/libbab      C ABI over the core             done
 apps/macos         AppKit shell                    done
 crates/bab-theme   theme import · OS-follow
@@ -49,6 +50,12 @@ crates/bab-vfs     local and remote file browsing
 apps/linux         GTK4 shell
 apps/windows       WinUI3 shell
 ```
+
+## Configure
+
+Copy `bab.example.toml` to `~/.config/bab/bab.toml`, or point `$BAB_CONFIG` at it. Every key is
+optional. A file that will not parse is reported and ignored rather than fatal — a terminal that
+refuses to open because of a typo is a terminal you cannot fix the typo in.
 
 ## Build
 

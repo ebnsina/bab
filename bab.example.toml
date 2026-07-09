@@ -1,0 +1,47 @@
+# bab configuration.
+#
+# Copy to ~/.config/bab/bab.toml, or point $BAB_CONFIG at it.
+# Every section and every key is optional. Anything you leave out keeps its default,
+# and a file that will not parse is reported and ignored rather than fatal — a terminal
+# that refuses to open because of a typo is a terminal you cannot fix the typo in.
+
+[font]
+# Size in points. Physical pixels are this times the display scale.
+size = 14.0
+
+# Fonts are given as file paths, not family names. Resolving a name needs a system font
+# database, and a chain that resolves differently on every machine is exactly what bab
+# bundles fonts to avoid.
+#
+# Omit these to use the bundled JetBrains Mono Nerd Font and Noto Sans Bengali.
+# file = "/Library/Fonts/JetBrainsMonoNerdFontMono-Regular.ttf"
+# fallback = ["/Library/Fonts/NotoSansBengali-Regular.ttf"]
+
+[window]
+# Inset from the window edge, in points.
+padding = 12.0
+# 1.0 is opaque. Below that, the vibrancy behind the window shows through.
+opacity = 0.92
+
+[cursor]
+# "block", "underline", or "bar". An application can still override this with DECSCUSR.
+shape = "block"
+blink = true
+
+[colors]
+foreground = "#c8d0da"
+background = "#11141a"
+# Drawn under the cursor.
+accent = "#7aa2f7"
+selection = "#7aa2f7"
+# Text under the selection has to stay legible.
+selection-alpha = 0.30
+
+# Exactly sixteen: eight normal, then eight bright. A list of any other length is
+# discarded whole, because indexing a short one would crash.
+ansi = [
+  "#1b1f27", "#f7768e", "#9ece6a", "#e0af68",
+  "#7aa2f7", "#bb9af7", "#7dcfff", "#a9b1d6",
+  "#414868", "#ff93a8", "#b9f27c", "#ffc777",
+  "#9abdf5", "#d3b4ff", "#a4daff", "#e6ebf4",
+]

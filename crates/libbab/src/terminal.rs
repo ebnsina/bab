@@ -4,28 +4,20 @@ use std::ffi::CString;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use bab_config::{Config, CursorShape as ConfigCursorShape};
 use bab_input::mouse::{MouseButton, MouseEvent, MouseEventKind};
 use bab_input::{Key, Modifiers, keyboard, mouse};
 use bab_pty::{Command, Session, Size};
-use bab_render::{CursorState, Renderer};
+use bab_render::{CursorState, Palette, Renderer};
 use bab_text::{Face, FontStack};
-use bab_vt::{Cursor, MouseTracking, Selection, SelectionMode};
+use bab_vt::{Cursor, CursorShape, CursorStyle, MouseTracking, Selection, SelectionMode};
 
 /// Fonts are embedded so the binary never depends on where it was installed from,
 /// and so the Bengali fallback can never go missing on a user's machine.
 const JETBRAINS_MONO: &[u8] =
     include_bytes!("../../../assets/fonts/JetBrainsMonoNerdFontMono-Regular.ttf");
 const NOTO_BENGALI: &[u8] = include_bytes!("../../../assets/fonts/NotoSansBengali-Regular.ttf");
-
-/// Font size in points. Physical pixels are this times the display's scale factor.
-const FONT_POINTS: f32 = 14.0;
-
-/// Inset from the window edge, in points. Text flush against the frame looks unfinished.
-const PADDING_POINTS: f32 = 12.0;
-
-/// How opaque the window is. Slightly translucent, to sit on the vibrancy behind it.
-const BACKGROUND_ALPHA: f32 = 0.92;
 
 /// Half of a full blink. macOS uses roughly this, and matching it makes `bab` feel
 /// like it belongs on the system rather than merely running on it.
@@ -40,6 +32,7 @@ pub struct Terminal {
     /// When the cursor last moved or the user last typed. Blinking restarts from
     /// solid on every keystroke, so the cursor is never invisible while you type.
     blink_epoch: Instant,
+    config: Config,
     /// Owned so the C API can hand out a pointer that stays valid until the next call.
     title: CString,
     selected: CString,
@@ -60,32 +53,34 @@ impl Terminal {
         height: u32,
         scale: f32,
     ) -> Result<Self> {
-        let fonts = FontStack::new(vec![
-            Face::new(
-                "JetBrains Mono Nerd Font Mono",
-                Arc::new(JETBRAINS_MONO.to_vec()),
-            )?,
-            Face::new("Noto Sans Bengali", Arc::new(NOTO_BENGALI.to_vec()))?,
-        ])?;
+        let (config, warning) = match Config::default_path() {
+            Some(path) => Config::load(&path),
+            None => (Config::default(), None),
+        };
+        if let Some(warning) = warning {
+            eprintln!("bab: ignoring config: {warning}");
+        }
+
+        let fonts = load_fonts(&config)?;
 
         // SAFETY: forwarded from the caller.
         let mut renderer = unsafe {
-            Renderer::new_for_metal_layer(layer, width, height, fonts, font_pixels(scale))?
+            Renderer::new_for_metal_layer(layer, width, height, fonts, config.font.size * scale)?
         };
-        renderer.set_padding(PADDING_POINTS * scale, PADDING_POINTS * scale);
-
-        let mut palette = renderer.palette();
-        palette.set_background_alpha(BACKGROUND_ALPHA);
-        renderer.set_palette(palette);
+        apply_appearance(&mut renderer, &config, scale);
 
         let size = grid_size(&renderer, width, height);
-        let session = Session::spawn(Command::default(), size)?;
+        let mut session = Session::spawn(Command::default(), size)?;
+        session
+            .terminal_mut()
+            .set_cursor_style(cursor_style(&config));
 
         Ok(Self {
             session,
             renderer,
             focused: true,
             blink_epoch: Instant::now(),
+            config,
             title: CString::default(),
             selected: CString::default(),
             selection: None,
@@ -269,9 +264,9 @@ impl Terminal {
     /// `scale` can change when a window moves between displays, so the font is
     /// remeasured every time rather than only at startup.
     pub fn resize(&mut self, width: u32, height: u32, scale: f32) -> Result<()> {
-        self.renderer.set_font_size(font_pixels(scale))?;
-        self.renderer
-            .set_padding(PADDING_POINTS * scale, PADDING_POINTS * scale);
+        self.renderer.set_font_size(self.config.font.size * scale)?;
+        let padding = self.config.window.padding * scale;
+        self.renderer.set_padding(padding, padding);
         self.renderer.resize(width, height);
         let size = grid_size(&self.renderer, width, height);
         self.session.resize(size)
@@ -333,12 +328,90 @@ impl Terminal {
     }
 }
 
-/// The font size in physical pixels for a display of the given scale.
+/// Load the configured faces, falling back to the bundled ones.
 ///
-/// Sizes cross the platform boundary in pixels, so the font must be scaled too.
-/// Leaving it in points renders the text at half size on a Retina display.
-fn font_pixels(scale: f32) -> f32 {
-    FONT_POINTS * scale.max(1.0)
+/// A configured face that cannot be read is reported and replaced, never fatal. A font
+/// file that moved must not stop the terminal from opening — the user needs a terminal
+/// to fix the config in.
+fn load_fonts(config: &Config) -> Result<FontStack> {
+    let bundled_primary = || {
+        Face::new(
+            "JetBrains Mono Nerd Font Mono",
+            Arc::new(JETBRAINS_MONO.to_vec()),
+        )
+    };
+    let bundled_fallback = || Face::new("Noto Sans Bengali", Arc::new(NOTO_BENGALI.to_vec()));
+
+    let primary = match &config.font.file {
+        Some(path) => match load_face(path) {
+            Ok(face) => face,
+            Err(error) => {
+                eprintln!("bab: falling back to the bundled font: {error:#}");
+                bundled_primary()?
+            }
+        },
+        None => bundled_primary()?,
+    };
+    let mut faces = vec![primary];
+
+    match &config.font.fallback {
+        Some(paths) => {
+            for path in paths {
+                match load_face(path) {
+                    Ok(face) => faces.push(face),
+                    Err(error) => eprintln!("bab: skipping fallback font: {error:#}"),
+                }
+            }
+            // Without a Bengali face the script this project exists for renders as tofu.
+            if faces.len() == 1 {
+                eprintln!("bab: no fallback font loaded; adding the bundled Bengali face");
+                faces.push(bundled_fallback()?);
+            }
+        }
+        None => faces.push(bundled_fallback()?),
+    }
+
+    FontStack::new(faces)
+}
+
+fn load_face(path: &std::path::Path) -> Result<Face> {
+    let bytes = std::fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let name = path
+        .file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+    Face::new(name, Arc::new(bytes))
+}
+
+fn apply_appearance(renderer: &mut Renderer, config: &Config, scale: f32) {
+    let padding = config.window.padding * scale;
+    renderer.set_padding(padding, padding);
+
+    let colors = &config.colors;
+    let mut palette = Palette {
+        foreground: colors.foreground.to_rgba(1.0),
+        background: colors.background.to_rgba(config.window.opacity),
+        accent: colors.accent.to_rgba(1.0),
+        selection: colors.selection.to_rgba(colors.selection_alpha),
+        ansi: [[0.0; 4]; 16],
+    };
+    for (slot, color) in palette.ansi.iter_mut().zip(&colors.ansi) {
+        *slot = color.to_rgba(1.0);
+    }
+    renderer.set_palette(palette);
+}
+
+const fn cursor_style(config: &Config) -> CursorStyle {
+    let shape = match config.cursor.shape {
+        ConfigCursorShape::Block => CursorShape::Block,
+        ConfigCursorShape::Underline => CursorShape::Underline,
+        ConfigCursorShape::Bar => CursorShape::Bar,
+    };
+    CursorStyle {
+        shape,
+        blink: config.cursor.blink,
+    }
 }
 
 /// How many whole cells fit in a pixel rectangle. Never zero: a zero-sized pty is

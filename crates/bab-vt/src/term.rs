@@ -66,6 +66,12 @@ impl Terminal {
         &self.state.modes
     }
 
+    /// Set the cursor style the terminal starts with. An application may still change
+    /// it later with `DECSCUSR`; this is only the default the user configured.
+    pub const fn set_cursor_style(&mut self, style: CursorStyle) {
+        self.state.modes.cursor_style = style;
+    }
+
     /// The title most recently set via `OSC 0` or `OSC 2`.
     #[must_use]
     pub fn title(&self) -> Option<&str> {
