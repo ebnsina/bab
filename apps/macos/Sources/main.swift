@@ -26,19 +26,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.isOpaque = false
         window.backgroundColor = .clear
 
-        // Vibrancy behind a translucent grid. This is the whole reason the core
-        // clears to an alpha below one.
-        let vibrancy = NSVisualEffectView(frame: window.contentLayoutRect)
-        vibrancy.autoresizingMask = [.width, .height]
+        // Vibrancy behind a translucent grid, running the full height of the window
+        // so it shows through the transparent titlebar too. This is the whole reason
+        // the core clears to an alpha below one.
+        let vibrancy = NSVisualEffectView()
         vibrancy.material = .underWindowBackground
         vibrancy.blendingMode = .behindWindow
         vibrancy.state = .active
+        window.contentView = vibrancy
 
-        let view = TerminalView(frame: vibrancy.bounds)
-        view.autoresizingMask = [.width, .height]
+        // The grid stops below the titlebar. With `fullSizeContentView` the content
+        // rect covers the whole window, so text would otherwise render underneath the
+        // traffic lights. `contentLayoutGuide` is where the titlebar ends.
+        let view = TerminalView(frame: .zero)
+        view.translatesAutoresizingMaskIntoConstraints = false
         vibrancy.addSubview(view)
 
-        window.contentView = vibrancy
+        guard let safeArea = window.contentLayoutGuide as? NSLayoutGuide else {
+            fatalError("contentLayoutGuide should be a layout guide on a titled window")
+        }
+        NSLayoutConstraint.activate([
+            view.topAnchor.constraint(equalTo: safeArea.topAnchor),
+            view.leadingAnchor.constraint(equalTo: vibrancy.leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: vibrancy.trailingAnchor),
+            view.bottomAnchor.constraint(equalTo: vibrancy.bottomAnchor),
+        ])
+
         window.makeFirstResponder(view)
         window.makeKeyAndOrderFront(nil)
 

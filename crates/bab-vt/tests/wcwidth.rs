@@ -86,6 +86,28 @@ fn the_word_that_broke_it_is_eight_cells() {
     assert_eq!(cluster_cells("প্রধানমন্ত্রী"), 8);
 }
 
+/// Nerd Font icons live in the Private Use Area. Treating that whole category as
+/// zero-width made the grid discard every icon in a shell prompt.
+#[test]
+fn private_use_icons_take_a_cell() {
+    assert_eq!(
+        char_cells('\u{e0b0}'),
+        1,
+        "powerline separator must occupy a cell"
+    );
+    assert_eq!(char_cells('\u{f07c}'), 1, "folder icon must occupy a cell");
+    assert_eq!(char_cells('\u{e702}'), 1, "branch icon must occupy a cell");
+}
+
+/// Discarding a cell means the character never reaches the screen at all.
+#[test]
+fn an_icon_survives_the_grid() {
+    use bab_vt::Terminal;
+    let mut term = Terminal::new(2, 10);
+    term.feed("\u{e0b0}x".as_bytes());
+    assert_eq!(term.grid().row_text(0), "\u{e0b0}x");
+}
+
 #[test]
 fn wide_characters_still_take_two_cells() {
     assert_eq!(char_cells('世'), 2);

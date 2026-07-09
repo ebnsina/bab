@@ -86,6 +86,12 @@ final class TerminalView: NSView {
         resizeCore()
     }
 
+    /// Auto Layout resizes through `layout`, not always through `setFrameSize`.
+    override func layout() {
+        super.layout()
+        resizeCore()
+    }
+
     private func updateLayerScale() {
         guard let layer = metalLayer, window != nil else { return }
         layer.contentsScale = backingScale

@@ -4,7 +4,7 @@
 //! called, or the two disagree about where the cursor is and the screen corrupts.
 //! It is the whole of `docs/adr/0001-width-contract.md` in one function.
 
-use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
+use unicode_properties::{GeneralCategory, UnicodeGeneralCategory};
 use unicode_width::UnicodeWidthChar;
 
 /// Cells occupied by `c`, matching what applications compute.
@@ -18,15 +18,32 @@ use unicode_width::UnicodeWidthChar;
 /// width of one, while the system `wcwidth` gives zero. Trusting the crate made `bab`
 /// allocate nine cells for a word that zsh had laid out in eight, and the line ate
 /// itself one cell at a time.
+/// Categories that occupy no cell.
+///
+/// Only these. The wider `Other` *group* also contains `Co`, Private Use — which is
+/// where every Nerd Font icon lives. Zeroing that group made the grid discard the
+/// icons in a shell prompt outright, since a zero-width character with no base to
+/// attach to is dropped.
+const fn is_zero_width(category: GeneralCategory) -> bool {
+    matches!(
+        category,
+        // Combining marks: hasant, the Bengali vowel signs, accents.
+        GeneralCategory::NonspacingMark
+            | GeneralCategory::SpacingMark
+            | GeneralCategory::EnclosingMark
+            // Format characters: ZWJ, ZWNJ, variation selectors.
+            | GeneralCategory::Format
+            // Control characters never advance the cursor by printing.
+            | GeneralCategory::Control
+    )
+}
+
 #[must_use]
 pub fn char_cells(c: char) -> usize {
-    match c.general_category_group() {
-        GeneralCategoryGroup::Mark => 0,
-        // `Other` covers `Cf` (ZWJ, ZWNJ, variation selectors) along with control
-        // characters, none of which advance the cursor.
-        GeneralCategoryGroup::Other => 0,
-        _ => c.width().unwrap_or(0),
+    if is_zero_width(c.general_category()) {
+        return 0;
     }
+    c.width().unwrap_or(0)
 }
 
 /// Cells occupied by a grapheme cluster: the sum over its codepoints.
