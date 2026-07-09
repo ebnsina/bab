@@ -10,15 +10,21 @@ license = "Apache-2.0"
 repository = "https://github.com/ebnsina/bab"
 
 [workspace.dependencies]
+bab-text = { path = "crates/bab-text" }
 bab-vt = { path = "crates/bab-vt" }
 
 anyhow = "1"
+bytemuck = { version = "1", features = ["derive"] }
+etagere = "0.3"
 harfrust = "0.12"
+pollster = "0.4"
 portable-pty = "0.9"
 skrifa = "0.44"
+swash = "0.2"
 unicode-segmentation = "1.12"
 unicode-width = "0.2"
 vte = "0.15"
+wgpu = "30"
 
 [workspace.lints.rust]
 missing_debug_implementations = "warn"

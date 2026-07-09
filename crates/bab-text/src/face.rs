@@ -16,6 +16,28 @@ fn is_invisible(c: char) -> bool {
     matches!(c, '\u{200C}' | '\u{200D}' | '\u{FE00}'..='\u{FE0F}' | '\u{E0100}'..='\u{E01EF}')
 }
 
+/// Vertical metrics in pixels, both distances positive away from the baseline.
+///
+/// Font tables and `skrifa` report descent as negative, since it points down. Storing
+/// it negated here means `line_height` is a sum rather than a difference, and a sign
+/// slip shrinks nothing.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub struct FaceMetrics {
+    /// Distance from the baseline up to the top of the tallest glyph.
+    pub ascent: f32,
+    /// Distance from the baseline down to the bottom of the deepest glyph.
+    pub descent: f32,
+    pub line_gap: f32,
+}
+
+impl FaceMetrics {
+    /// The natural distance between baselines.
+    #[must_use]
+    pub fn line_height(&self) -> f32 {
+        self.ascent + self.descent + self.line_gap
+    }
+}
+
 /// A font face, ready to shape.
 ///
 /// Holds its own bytes so the shaper can be rebuilt per call: `harfrust`'s `Shaper`
@@ -66,6 +88,26 @@ impl Face {
     #[must_use]
     pub const fn units_per_em(&self) -> u16 {
         self.units_per_em
+    }
+
+    /// The raw font bytes, for a rasterizer that parses them itself.
+    #[must_use]
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Vertical metrics scaled to `size_px`.
+    #[must_use]
+    pub fn metrics(&self, size_px: f32) -> FaceMetrics {
+        let Ok(font) = FontRef::new(&self.bytes) else {
+            return FaceMetrics::default();
+        };
+        let metrics = font.metrics(Size::new(size_px), LocationRef::default());
+        FaceMetrics {
+            ascent: metrics.ascent,
+            descent: metrics.descent.abs(),
+            line_gap: metrics.leading,
+        }
     }
 
     /// Whether this face has a glyph for `c`.

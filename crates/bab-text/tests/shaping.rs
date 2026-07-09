@@ -224,6 +224,23 @@ fn a_wide_cluster_overhangs_rather_than_reflowing() {
     assert!(placement.x_offset < 0.0);
 }
 
+/// Font tables report descent as negative. If it is not negated on the way in,
+/// `line_height` subtracts instead of adding and lines overlap on screen.
+#[test]
+fn descent_is_positive_and_line_height_exceeds_the_font_size() {
+    let face = load(MONO);
+    let size = 18.0;
+    let metrics = face.metrics(size);
+
+    assert!(metrics.ascent > 0.0);
+    assert!(metrics.descent > 0.0, "descent must be stored positive");
+    assert!(
+        metrics.line_height() > size,
+        "line height {} should exceed the font size {size}",
+        metrics.line_height()
+    );
+}
+
 #[test]
 fn font_units_convert_to_pixels() {
     let face = load(BENGALI);

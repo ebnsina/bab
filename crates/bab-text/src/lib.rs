@@ -8,6 +8,6 @@ pub mod face;
 pub mod layout;
 pub mod shaper;
 
-pub use face::{Face, FontStack};
+pub use face::{Face, FaceMetrics, FontStack};
 pub use layout::{CellMetrics, Placement, place, to_px};
 pub use shaper::{HarfRustShaper, ShapedCluster, ShapedGlyph, Shaper};
