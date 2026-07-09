@@ -35,7 +35,8 @@ fn main() -> anyhow::Result<()> {
 
     let mut terminal = Terminal::new(6, 40);
     terminal.feed("\x1b[1;32mbab\x1b[0m \x1b[38;5;250m~ a terminal\x1b[0m\r\n".as_bytes());
-    terminal.feed("বাংলা  ব্ল  ক্ষ  কি  র্ক\r\n".as_bytes());
+    terminal.feed("প্রধানমন্ত্রী তারেক রহমান\r\n".as_bytes());
+    terminal.feed("বাংলা ব্ল ক্ষ কি র্ক\r\n".as_bytes());
     terminal.feed("\x1b[7m reverse \x1b[0m \x1b[38;2;255;120;60mtruecolor\x1b[0m\r\n".as_bytes());
     terminal.feed("ligatures: => != ->  wide: 世界\r\n".as_bytes());
     terminal.feed(b"\x1b[2 q$ ");

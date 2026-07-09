@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use anyhow::{Context, Result};
-use bab_text::{CellMetrics, FontStack, HarfRustShaper, ShapedCluster, Shaper, place, to_px};
+use bab_text::{CellMetrics, FontStack, HarfRustShaper, ShapedCluster, Shaper, to_px};
 use bab_vt::{Cursor, CursorShape, CursorStyle, Grid};
 use bytemuck::{Pod, Zeroable};
 
@@ -30,6 +30,23 @@ struct Instance {
 struct Globals {
     viewport: [f32; 2],
     _pad: [f32; 2],
+}
+
+/// A stretch of cells shaped together.
+///
+/// Shaping a Bengali cluster alone and centring it in the cells `wcwidth` allotted
+/// shatters words: `wcwidth` counts three consonants for a conjunct that draws as one
+/// glyph, so every cluster floats in a box too wide for it. A run is shaped whole and
+/// its glyphs laid out contiguously from its first cell, which also lets Latin
+/// ligatures form across cells. The grid is untouched — only where ink lands changes.
+#[derive(Default, Debug)]
+struct Run {
+    start_col: usize,
+    face_index: usize,
+    color: [f32; 4],
+    text: String,
+    /// Set when the last cell added must not be flowed out of, such as the cursor cell.
+    ends_here: bool,
 }
 
 /// Thickness of a bar or underline cursor, in pixels.
@@ -413,14 +430,22 @@ impl Renderer {
             cursor_quads = cursor_instances(cursor, cell, palette.foreground, atlas.solid_uv());
         }
 
+        let mut runs: Vec<Run> = Vec::new();
+
         for row in 0..grid.rows() {
-            for col in 0..grid.cols() {
+            runs.clear();
+            let mut col = 0;
+
+            while col < grid.cols() {
                 let Some(cell_data) = grid.cell(row, col) else {
+                    col += 1;
                     continue;
                 };
                 let (mut fg, bg) = palette.colors_for(cell_data.attrs);
 
-                if inverted_cell.is_some_and(|c| c.position.row == row && c.position.col == col) {
+                let under_cursor =
+                    inverted_cell.is_some_and(|c| c.position.row == row && c.position.col == col);
+                if under_cursor {
                     fg = palette.background;
                 }
 
@@ -438,29 +463,57 @@ impl Renderer {
                 }
 
                 let Some(cluster) = cell_data.cluster() else {
+                    // A blank cell ends the run: text cannot flow across a hole.
+                    runs.push(Run::default());
+                    col += 1;
                     continue;
                 };
 
-                let (face_index, face) = fonts.resolve(cluster.text());
-                let key = (face_index, cluster.text().to_owned());
+                let (face_index, _) = fonts.resolve(cluster.text());
+                let extends = runs.last().is_some_and(|run| {
+                    !run.text.is_empty()
+                        && run.face_index == face_index
+                        && run.color == fg
+                        && !run.ends_here
+                });
+
+                if extends {
+                    let run = runs.last_mut().expect("checked above");
+                    run.text.push_str(cluster.text());
+                    // The cursor cell is repainted, so nothing may flow out of it.
+                    run.ends_here = under_cursor;
+                } else {
+                    runs.push(Run {
+                        start_col: col,
+                        face_index,
+                        color: fg,
+                        text: cluster.text().to_owned(),
+                        ends_here: under_cursor,
+                    });
+                }
+
+                col += cluster.width() as usize;
+            }
+
+            for run in runs.iter().filter(|run| !run.text.is_empty()) {
+                let face = &fonts.faces()[run.face_index];
+                let key = (run.face_index, run.text.clone());
                 let shaped = match shape_cache.get(&key) {
                     Some(shaped) => shaped,
                     None => {
-                        let shaped = HarfRustShaper.shape(cluster.text(), face, face_index)?;
+                        let shaped = HarfRustShaper.shape(&run.text, face, run.face_index)?;
                         shape_cache.entry(key).or_insert(shaped)
                     }
                 };
 
                 let upem = face.units_per_em();
-                let placement = place(shaped, upem, *font_size, cluster.width(), cell);
-
-                let mut pen_x = col as f32 * cell.width + placement.x_offset;
+                let mut pen_x = run.start_col as f32 * cell.width;
                 let pen_y = row as f32 * cell.height + metrics.ascent;
 
                 for glyph in &shaped.glyphs {
                     let entry = atlas.entry(
                         queue,
-                        GlyphKey::new(face_index, glyph.glyph_id, *font_size),
+                        GlyphKey::new(run.face_index, glyph.glyph_id, *font_size),
                         || rasterizer.rasterize(face, glyph.glyph_id, *font_size),
                     )?;
 
@@ -475,7 +528,7 @@ impl Renderer {
                                 entry.height,
                             ],
                             uv: entry.uv,
-                            color: fg,
+                            color: run.color,
                         });
                     }
 

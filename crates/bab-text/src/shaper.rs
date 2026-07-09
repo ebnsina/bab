@@ -38,7 +38,7 @@ pub struct ShapedCluster {
     pub glyphs: Vec<ShapedGlyph>,
     /// Total advance the shaper wants. This is *not* the cell span — see `layout`.
     pub advance: i32,
-    /// Index into the [`FontStack`](crate::FontStack) that shaped this cluster.
+    /// Index into the [`FontStack`](crate::FontStack) that shaped this text.
     pub face_index: usize,
 }
 

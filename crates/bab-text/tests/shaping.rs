@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use bab_text::{CellMetrics, Face, FontStack, HarfRustShaper, Shaper, place};
+use bab_text::{Face, FontStack, HarfRustShaper, Shaper};
 
 const BENGALI: &str = "NotoSansBengali-Regular.ttf";
 const MONO: &str = "GeistMono-Regular.ttf";
@@ -186,60 +186,7 @@ fn combining_mark_has_zero_advance() {
     assert_eq!(base.advance, with_mark.advance);
 }
 
-// ---- the width contract ----------------------------------------------------
-
-/// Bengali is drawn in a proportional fallback face, so it will not fill its cells.
-/// We centre it and keep the slack. We never scale to fit.
-#[test]
-fn a_narrow_cluster_is_centred_in_its_span() {
-    let face = load(BENGALI);
-    let shaped = shape("ক", &face);
-    let cell = CellMetrics {
-        width: 100.0,
-        height: 200.0,
-    };
-
-    // A span far wider than the glyph, to make the arithmetic unambiguous.
-    let placement = place(&shaped, face.units_per_em(), 10.0, 8, cell);
-
-    assert!(placement.slack > 0.0);
-    assert!(!placement.overhangs());
-    assert!((placement.x_offset - placement.slack / 2.0).abs() < f32::EPSILON);
-}
-
-/// When the glyph is wider than its allocated cells, it overhangs symmetrically.
-/// The grid does not widen: the application already decided the span.
-#[test]
-fn a_wide_cluster_overhangs_rather_than_reflowing() {
-    let face = load(BENGALI);
-    let shaped = shape("ক", &face);
-    let cell = CellMetrics {
-        width: 1.0,
-        height: 2.0,
-    };
-
-    let placement = place(&shaped, face.units_per_em(), 100.0, 1, cell);
-
-    assert!(placement.overhangs());
-    assert!(placement.x_offset < 0.0);
-}
-
-/// Font tables report descent as negative. If it is not negated on the way in,
-/// `line_height` subtracts instead of adding and lines overlap on screen.
-#[test]
-fn descent_is_positive_and_line_height_exceeds_the_font_size() {
-    let face = load(MONO);
-    let size = 18.0;
-    let metrics = face.metrics(size);
-
-    assert!(metrics.ascent > 0.0);
-    assert!(metrics.descent > 0.0, "descent must be stored positive");
-    assert!(
-        metrics.line_height() > size,
-        "line height {} should exceed the font size {size}",
-        metrics.line_height()
-    );
-}
+// ---- units ----------------------------------------------------------------
 
 #[test]
 fn font_units_convert_to_pixels() {

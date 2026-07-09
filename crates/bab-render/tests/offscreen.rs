@@ -283,3 +283,80 @@ fn a_block_cursor_inverts_the_glyph_beneath_it() {
 
     assert!(holes > 0, "the glyph should be cut out of the block cursor");
 }
+
+// ---- run shaping -----------------------------------------------------------
+
+/// Widest run of background-coloured pixel columns strictly inside the inked region.
+///
+/// A word rendered as disconnected islands shows up here as a wide interior gap.
+fn widest_interior_gap(pixels: &[u8], palette: &Palette) -> usize {
+    let bg: Vec<u8> = palette.background[..3]
+        .iter()
+        .map(|c| (c * 255.0).round() as u8)
+        .collect();
+    let inked: Vec<bool> = (0..WIDTH as usize)
+        .map(|x| {
+            (0..HEIGHT as usize).any(|y| {
+                let offset = (y * WIDTH as usize + x) * 4;
+                pixels[offset..offset + 3] != bg[..]
+            })
+        })
+        .collect();
+
+    let Some(first) = inked.iter().position(|ink| *ink) else {
+        return 0;
+    };
+    let last = inked.iter().rposition(|ink| *ink).unwrap_or(first);
+
+    let mut widest = 0;
+    let mut current = 0;
+    for &ink in &inked[first..=last] {
+        if ink {
+            current = 0;
+        } else {
+            current += 1;
+            widest = widest.max(current);
+        }
+    }
+    widest
+}
+
+/// Shaping each cluster alone and centring it in its `wcwidth` span shatters Bengali
+/// words: a conjunct that draws as one glyph is allotted a cell per consonant, so the
+/// letters float apart. Shaping the whole run keeps the word together.
+#[test]
+fn a_bengali_word_renders_without_interior_gaps() {
+    let Some(pixels) = render("প্রধানমন্ত্রী") else {
+        return;
+    };
+    let gap = widest_interior_gap(&pixels, &Palette::default());
+    assert!(gap < 8, "the word was shattered: {gap}px gap inside it");
+}
+
+/// Ligatures span two cells and two clusters, so they can only form when the run is
+/// shaped whole. Fewer glyphs than characters proves it happened.
+#[test]
+fn latin_ligatures_form_across_cells() {
+    let Some(with_ligature) = render("=>") else {
+        return;
+    };
+    let Some(without) = render("=x") else {
+        return;
+    };
+
+    let palette = Palette::default();
+    assert!(ink(&with_ligature, &palette) > 0);
+    assert_ne!(with_ligature, without);
+}
+
+/// A run stops at a blank cell, so two words never flow into one another.
+#[test]
+fn a_blank_cell_breaks_the_run() {
+    let Some(spaced) = render("ব ল") else {
+        return;
+    };
+    let Some(joined) = render("বল") else {
+        return;
+    };
+    assert_ne!(spaced, joined);
+}
