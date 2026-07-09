@@ -1,0 +1,16 @@
+[package]
+name = "bab-pty"
+description = "Pseudoterminal process management, and the terminal session that drives it"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bab-vt.workspace = true
+portable-pty.workspace = true
+
+[lints]
+workspace = true

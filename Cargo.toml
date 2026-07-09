@@ -10,6 +10,10 @@ license = "Apache-2.0"
 repository = "https://github.com/ebnsina/bab"
 
 [workspace.dependencies]
+bab-vt = { path = "crates/bab-vt" }
+
+anyhow = "1"
+portable-pty = "0.9"
 unicode-segmentation = "1.12"
 unicode-width = "0.2"
 vte = "0.15"
