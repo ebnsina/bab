@@ -282,3 +282,44 @@ fn restore_cursor_restores_attributes() {
             .contains(Flags::BOLD)
     );
 }
+
+// ---- cursor style ----------------------------------------------------------
+
+#[test]
+fn decscusr_sets_the_cursor_shape() {
+    use bab_vt::CursorShape;
+
+    let term = render(b"\x1b[4 q");
+    assert_eq!(term.modes().cursor_style.shape, CursorShape::Underline);
+    assert!(!term.modes().cursor_style.blink);
+
+    let term = render(b"\x1b[5 q");
+    assert_eq!(term.modes().cursor_style.shape, CursorShape::Bar);
+    assert!(term.modes().cursor_style.blink);
+}
+
+/// `CSI 0 SP q` resets, and so does a bare `CSI SP q`.
+#[test]
+fn decscusr_zero_restores_the_default() {
+    use bab_vt::{CursorShape, CursorStyle};
+
+    let term = render(b"\x1b[5 q\x1b[0 q");
+    assert_eq!(term.modes().cursor_style, CursorStyle::default());
+    assert_eq!(term.modes().cursor_style.shape, CursorShape::Block);
+}
+
+/// DECSCUSR must not be mistaken for a cursor movement: the space is an intermediate.
+#[test]
+fn decscusr_does_not_move_the_cursor() {
+    let term = render(b"\x1b[3;3H\x1b[2 q");
+    let cursor = term.grid().cursor();
+    assert_eq!((cursor.row, cursor.col), (2, 2));
+}
+
+#[test]
+fn application_cursor_keys_mode_toggles() {
+    let mut term = render(b"\x1b[?1h");
+    assert!(term.modes().application_cursor_keys);
+    term.feed(b"\x1b[?1l");
+    assert!(!term.modes().application_cursor_keys);
+}

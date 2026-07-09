@@ -14,5 +14,5 @@ pub mod term;
 pub use attrs::{Attrs, Color, Flags};
 pub use cell::{Cell, CellContent, Cluster};
 pub use grid::{Cursor, Grid, LineErase, SavedCursor, ScreenErase};
-pub use modes::{Mode, Modes, MouseTracking};
+pub use modes::{CursorShape, CursorStyle, Mode, Modes, MouseTracking};
 pub use term::Terminal;

@@ -5,7 +5,7 @@ use std::fmt;
 use vte::{Params, Perform};
 
 use crate::grid::{Grid, LineErase, ScreenErase};
-use crate::modes::{Mode, Modes, MouseTracking};
+use crate::modes::{CursorStyle, Mode, Modes, MouseTracking};
 use crate::sgr;
 
 /// Lines retained above the primary screen.
@@ -118,6 +118,7 @@ impl State {
 
     fn set_mode(&mut self, mode: Mode, enabled: bool) {
         match mode {
+            Mode::ApplicationCursorKeys => self.modes.application_cursor_keys = enabled,
             Mode::Autowrap => {
                 self.modes.autowrap = enabled;
                 self.grid_mut().autowrap = enabled;
@@ -210,6 +211,16 @@ impl Perform for State {
                 {
                     self.set_mode(mode, enabled);
                 }
+            }
+            return;
+        }
+
+        // `CSI Ps SP q` is DECSCUSR. The space is an intermediate, not a parameter.
+        if intermediates == b" " {
+            if action == 'q'
+                && let Some(style) = CursorStyle::from_decscusr(arg_or(params, 0) as u16)
+            {
+                self.modes.cursor_style = style;
             }
             return;
         }

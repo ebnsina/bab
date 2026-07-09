@@ -38,8 +38,16 @@ fn main() -> anyhow::Result<()> {
     terminal.feed("বাংলা  ব্ল  ক্ষ  কি  র্ক\r\n".as_bytes());
     terminal.feed("\x1b[7m reverse \x1b[0m \x1b[38;2;255;120;60mtruecolor\x1b[0m\r\n".as_bytes());
     terminal.feed("ligatures: => != ->  wide: 世界\r\n".as_bytes());
+    terminal.feed(b"\x1b[2 q$ ");
 
-    renderer.render(terminal.grid())?;
+    renderer.render(
+        terminal.grid(),
+        Some(bab_render::CursorState {
+            position: terminal.grid().cursor(),
+            style: terminal.modes().cursor_style,
+            focused: true,
+        }),
+    )?;
     let pixels = renderer.read_pixels()?;
 
     let file = std::fs::File::create(&out)?;

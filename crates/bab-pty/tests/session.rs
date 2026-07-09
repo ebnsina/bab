@@ -136,3 +136,42 @@ fn paste_is_bracketed_only_when_requested() {
     assert!(!session.terminal().modes().bracketed_paste);
     session.kill().unwrap();
 }
+
+// ---- keyboard round trip ---------------------------------------------------
+
+use bab_input::{Key, Modifiers, keyboard};
+
+/// The loop closes: an encoded key press reaches the child and comes back as output.
+#[test]
+fn an_encoded_keypress_reaches_the_child() {
+    let mut session = Session::spawn(sh("cat"), Size::new(4, 20)).unwrap();
+
+    let modes = *session.terminal().modes();
+    for c in ['h', 'i'] {
+        let bytes = keyboard::encode(&Key::Char(c), Modifiers::NONE, &modes).unwrap();
+        session.send(&bytes).unwrap();
+    }
+    let enter = keyboard::encode(&Key::Enter, Modifiers::NONE, &modes).unwrap();
+    session.send(&enter).unwrap();
+
+    pump_until(&mut session, |s| screen_text(s).contains("hi"));
+    session.kill().unwrap();
+}
+
+/// ctrl-d is end of transmission, so `cat` sees EOF and exits. If the encoder emitted
+/// a literal `d` instead, the session would never close.
+#[test]
+fn control_d_closes_a_reading_child() {
+    let mut session = Session::spawn(sh("cat"), Size::new(4, 20)).unwrap();
+    let modes = *session.terminal().modes();
+
+    let bytes = keyboard::encode(&Key::Char('d'), Modifiers::CONTROL, &modes).unwrap();
+    assert_eq!(bytes, vec![0x04]);
+    session.send(&bytes).unwrap();
+
+    let deadline = Instant::now() + TIMEOUT;
+    while !session.is_closed() && Instant::now() < deadline {
+        session.pump_timeout(Duration::from_millis(50)).unwrap();
+    }
+    assert!(session.is_closed(), "ctrl-d should have ended the child");
+}

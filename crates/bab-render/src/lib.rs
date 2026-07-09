@@ -12,4 +12,4 @@ pub mod renderer;
 pub use atlas::{Atlas, AtlasEntry, GlyphKey};
 pub use palette::Palette;
 pub use raster::{GlyphBitmap, Rasterizer};
-pub use renderer::{GridMetrics, Renderer};
+pub use renderer::{CursorState, GridMetrics, Renderer};

@@ -24,19 +24,22 @@ The name is a promise the project has not kept yet.
 
 ## Status
 
-Early. The cluster-aware grid and VT state machine are working and tested.
+Early, but the core pipeline runs end to end: a real shell on a pseudoterminal, parsed into a
+cluster-aware grid, shaped with HarfBuzz, and drawn on the GPU. Bengali conjuncts, reph, and
+pre-base matras render correctly. What is missing is a window.
 
 ## Layout
 
 ```
-crates/bab-vt    grid · cells · VT parser        ← you are here
-crates/bab-pty   pseudoterminal
-crates/bab-text  shaping · fallback · atlas
-crates/bab-render wgpu renderer
-crates/bab-theme theme import · OS-follow
-crates/bab-ssh   ssh client and host manager
-crates/bab-vfs   local and remote file browsing
-apps/            AppKit · GTK4 · WinUI3 shells
+crates/bab-vt      grid · cells · VT parser        done
+crates/bab-pty     pseudoterminal · session        done
+crates/bab-text    shaping · font fallback         done
+crates/bab-render  wgpu renderer · glyph atlas     done
+crates/bab-input   keyboard · mouse encoding       done
+crates/bab-theme   theme import · OS-follow
+crates/bab-ssh     ssh client and host manager
+crates/bab-vfs     local and remote file browsing
+apps/              AppKit · GTK4 · WinUI3 shells
 ```
 
 ## Build

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use bab_text::{CellMetrics, FontStack, HarfRustShaper, ShapedCluster, Shaper, place, to_px};
-use bab_vt::Grid;
+use bab_vt::{Cursor, CursorShape, CursorStyle, Grid};
 use bytemuck::{Pod, Zeroable};
 
 use crate::atlas::{Atlas, GlyphKey};
@@ -30,6 +30,20 @@ struct Instance {
 struct Globals {
     viewport: [f32; 2],
     _pad: [f32; 2],
+}
+
+/// Thickness of a bar or underline cursor, in pixels.
+const CURSOR_THICKNESS: f32 = 2.0;
+/// Thickness of the outline drawn when the terminal is not focused.
+const CURSOR_OUTLINE: f32 = 1.0;
+
+/// Where and how to draw the cursor.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct CursorState {
+    pub position: Cursor,
+    pub style: CursorStyle,
+    /// An unfocused terminal draws a hollow box, whatever the shape.
+    pub focused: bool,
 }
 
 /// The pixel geometry of one cell, derived from the primary face.
@@ -264,9 +278,9 @@ impl Renderer {
         )
     }
 
-    /// Draw `grid` into the offscreen texture.
-    pub fn render(&mut self, grid: &Grid) -> Result<()> {
-        let instances = self.build_instances(grid)?;
+    /// Draw `grid` into the offscreen texture, with an optional cursor.
+    pub fn render(&mut self, grid: &Grid, cursor: Option<CursorState>) -> Result<()> {
+        let instances = self.build_instances(grid, cursor)?;
         self.upload_instances(&instances);
 
         let mut encoder = self
@@ -308,8 +322,15 @@ impl Renderer {
         Ok(())
     }
 
-    /// Build the quads for one frame: cell backgrounds first, then glyphs over them.
-    fn build_instances(&mut self, grid: &Grid) -> Result<Vec<Instance>> {
+    /// Build the quads for one frame: backgrounds, then the cursor, then glyphs.
+    ///
+    /// The cursor sits under the glyphs so that a filled block does not hide the
+    /// character it covers — the glyph is redrawn in the background colour instead.
+    fn build_instances(
+        &mut self,
+        grid: &Grid,
+        cursor: Option<CursorState>,
+    ) -> Result<Vec<Instance>> {
         // Destructured so the atlas and rasterizer can be borrowed at the same time.
         let Self {
             queue,
@@ -325,14 +346,28 @@ impl Renderer {
 
         let cell = metrics.cell;
         let mut backgrounds = Vec::new();
+        let mut cursor_quads = Vec::new();
         let mut glyphs = Vec::new();
+
+        // A focused block cursor covers the cell, so the glyph under it must be
+        // repainted in the background colour or it disappears.
+        let inverted_cell =
+            cursor.filter(|cursor| cursor.focused && cursor.style.shape == CursorShape::Block);
+
+        if let Some(cursor) = cursor {
+            cursor_quads = cursor_instances(cursor, cell, palette.foreground, atlas.solid_uv());
+        }
 
         for row in 0..grid.rows() {
             for col in 0..grid.cols() {
                 let Some(cell_data) = grid.cell(row, col) else {
                     continue;
                 };
-                let (fg, bg) = palette.colors_for(cell_data.attrs);
+                let (mut fg, bg) = palette.colors_for(cell_data.attrs);
+
+                if inverted_cell.is_some_and(|c| c.position.row == row && c.position.col == col) {
+                    fg = palette.background;
+                }
 
                 if bg != palette.background {
                     backgrounds.push(Instance {
@@ -394,6 +429,7 @@ impl Renderer {
             }
         }
 
+        backgrounds.append(&mut cursor_quads);
         backgrounds.append(&mut glyphs);
         Ok(backgrounds)
     }
@@ -468,6 +504,42 @@ impl Renderer {
 
         Ok(pixels)
     }
+}
+
+/// The quads for one cursor: a filled shape when focused, a hollow box when not.
+fn cursor_instances(
+    cursor: CursorState,
+    cell: CellMetrics,
+    color: [f32; 4],
+    uv: [f32; 4],
+) -> Vec<Instance> {
+    let x = cursor.position.col as f32 * cell.width;
+    let y = cursor.position.row as f32 * cell.height;
+
+    let quad = |rect: [f32; 4]| Instance { rect, uv, color };
+
+    if !cursor.focused {
+        // A hollow box, drawn as four edges. An unfocused terminal must not look
+        // like it will accept the next keystroke.
+        let t = CURSOR_OUTLINE;
+        return vec![
+            quad([x, y, cell.width, t]),
+            quad([x, y + cell.height - t, cell.width, t]),
+            quad([x, y, t, cell.height]),
+            quad([x + cell.width - t, y, t, cell.height]),
+        ];
+    }
+
+    vec![match cursor.style.shape {
+        CursorShape::Block => quad([x, y, cell.width, cell.height]),
+        CursorShape::Underline => quad([
+            x,
+            y + cell.height - CURSOR_THICKNESS,
+            cell.width,
+            CURSOR_THICKNESS,
+        ]),
+        CursorShape::Bar => quad([x, y, CURSOR_THICKNESS, cell.height]),
+    }]
 }
 
 fn create_target(

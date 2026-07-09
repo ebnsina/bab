@@ -1,4 +1,62 @@
-//! DEC private modes (`CSI ? Pm h` / `CSI ? Pm l`).
+//! DEC private modes (`CSI ? Pm h` / `CSI ? Pm l`) and cursor style.
+
+/// How the cursor is drawn, set by `DECSCUSR` (`CSI Ps SP q`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CursorShape {
+    Block,
+    Underline,
+    Bar,
+}
+
+/// Cursor appearance.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct CursorStyle {
+    pub shape: CursorShape,
+    pub blink: bool,
+}
+
+impl Default for CursorStyle {
+    fn default() -> Self {
+        Self {
+            shape: CursorShape::Block,
+            blink: true,
+        }
+    }
+}
+
+impl CursorStyle {
+    /// Map a `DECSCUSR` parameter. `0` means "reset to default", as does an omitted one.
+    #[must_use]
+    pub const fn from_decscusr(param: u16) -> Option<Self> {
+        Some(match param {
+            0 | 1 => Self {
+                shape: CursorShape::Block,
+                blink: true,
+            },
+            2 => Self {
+                shape: CursorShape::Block,
+                blink: false,
+            },
+            3 => Self {
+                shape: CursorShape::Underline,
+                blink: true,
+            },
+            4 => Self {
+                shape: CursorShape::Underline,
+                blink: false,
+            },
+            5 => Self {
+                shape: CursorShape::Bar,
+                blink: true,
+            },
+            6 => Self {
+                shape: CursorShape::Bar,
+                blink: false,
+            },
+            _ => return None,
+        })
+    }
+}
 
 /// Mouse reporting granularity.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -16,8 +74,11 @@ pub enum MouseTracking {
 /// Terminal modes that outlive a single escape sequence.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Modes {
+    /// `?1` `DECCKM`. Arrow keys send `SS3` instead of `CSI`.
+    pub application_cursor_keys: bool,
     /// `?7` `DECAWM`. Wrap at the right margin.
     pub autowrap: bool,
+    pub cursor_style: CursorStyle,
     /// `?25` `DECTCEM`. Cursor visibility.
     pub cursor_visible: bool,
     /// `?1049`. The alternate screen is active.
@@ -36,6 +97,8 @@ pub struct Modes {
 impl Default for Modes {
     fn default() -> Self {
         Self {
+            application_cursor_keys: false,
+            cursor_style: CursorStyle::default(),
             autowrap: true,
             cursor_visible: true,
             alt_screen: false,
@@ -51,6 +114,7 @@ impl Default for Modes {
 /// A DEC private mode we understand.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
+    ApplicationCursorKeys,
     Autowrap,
     CursorVisible,
     AltScreen,
@@ -66,6 +130,7 @@ impl Mode {
     #[must_use]
     pub const fn from_number(number: u16) -> Option<Self> {
         Some(match number {
+            1 => Self::ApplicationCursorKeys,
             7 => Self::Autowrap,
             25 => Self::CursorVisible,
             1000 => Self::MouseTracking(MouseTracking::Click),

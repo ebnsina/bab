@@ -51,7 +51,7 @@ fn render(text: &str) -> Option<Vec<u8>> {
     let mut terminal = Terminal::new(4, 20);
     terminal.feed(text.as_bytes());
 
-    renderer.render(terminal.grid()).expect("render");
+    renderer.render(terminal.grid(), None).expect("render");
     Some(renderer.read_pixels().expect("readback"))
 }
 
@@ -176,7 +176,7 @@ fn resize_changes_the_readback_size() {
 
     let mut terminal = Terminal::new(2, 8);
     terminal.feed(b"hi");
-    renderer.render(terminal.grid()).expect("render");
+    renderer.render(terminal.grid(), None).expect("render");
 
     let pixels = renderer.read_pixels().expect("readback");
     assert_eq!(pixels.len(), 64 * 32 * 4);
@@ -193,4 +193,93 @@ fn cell_metrics_are_positive() {
     assert!(metrics.cell.width > 0.0);
     assert!(metrics.cell.height > 0.0);
     assert!(metrics.ascent > 0.0);
+}
+
+// ---- cursor ----------------------------------------------------------------
+
+use bab_render::CursorState;
+use bab_vt::{Cursor, CursorShape, CursorStyle};
+
+fn render_with_cursor(text: &str, cursor: Option<CursorState>) -> Option<Vec<u8>> {
+    let mut renderer = renderer()?;
+    let mut terminal = Terminal::new(4, 20);
+    terminal.feed(text.as_bytes());
+    renderer.render(terminal.grid(), cursor).expect("render");
+    Some(renderer.read_pixels().expect("readback"))
+}
+
+fn cursor_at(col: usize, shape: CursorShape, focused: bool) -> CursorState {
+    CursorState {
+        position: Cursor { row: 0, col },
+        style: CursorStyle {
+            shape,
+            blink: false,
+        },
+        focused,
+    }
+}
+
+#[test]
+fn no_cursor_draws_nothing_extra() {
+    let Some(without) = render_with_cursor("", None) else {
+        return;
+    };
+    assert_eq!(ink(&without, &Palette::default()), 0);
+}
+
+#[test]
+fn a_block_cursor_fills_its_cell() {
+    let Some(pixels) = render_with_cursor("", Some(cursor_at(0, CursorShape::Block, true))) else {
+        return;
+    };
+    assert!(ink(&pixels, &Palette::default()) > 0);
+}
+
+/// A bar is thinner than a block, and an unfocused outline thinner still.
+#[test]
+fn cursor_shapes_differ_in_area() {
+    let Some(block) = render_with_cursor("", Some(cursor_at(0, CursorShape::Block, true))) else {
+        return;
+    };
+    let Some(bar) = render_with_cursor("", Some(cursor_at(0, CursorShape::Bar, true))) else {
+        return;
+    };
+    let Some(hollow) = render_with_cursor("", Some(cursor_at(0, CursorShape::Block, false))) else {
+        return;
+    };
+
+    let palette = Palette::default();
+    assert!(ink(&block, &palette) > ink(&bar, &palette));
+    assert!(ink(&block, &palette) > ink(&hollow, &palette));
+    assert!(
+        ink(&hollow, &palette) > 0,
+        "an unfocused cursor still draws an outline"
+    );
+}
+
+/// A filled block must not swallow the character under it: the glyph is repainted in
+/// the background colour, so some pixels inside the cell match the background.
+#[test]
+fn a_block_cursor_inverts_the_glyph_beneath_it() {
+    let Some(pixels) = render_with_cursor("W", Some(cursor_at(0, CursorShape::Block, true))) else {
+        return;
+    };
+    let palette = Palette::default();
+    let bg: Vec<u8> = palette.background[..3]
+        .iter()
+        .map(|c| (c * 255.0).round() as u8)
+        .collect();
+
+    // Look only inside the first cell.
+    let cell_w = 10_usize;
+    let cell_h = 10_usize;
+    let holes = (0..cell_h)
+        .flat_map(|y| (0..cell_w).map(move |x| (x, y)))
+        .filter(|(x, y)| {
+            let offset = (y * WIDTH as usize + x) * 4;
+            pixels[offset..offset + 3] == bg[..]
+        })
+        .count();
+
+    assert!(holes > 0, "the glyph should be cut out of the block cursor");
 }
