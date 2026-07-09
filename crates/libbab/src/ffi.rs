@@ -96,7 +96,8 @@ unsafe fn with<T>(
 
 /// Create a terminal drawing into a `CAMetalLayer`, and spawn the user's shell.
 ///
-/// Returns null on failure. The size is in physical pixels, not points.
+/// Returns null on failure. The size is in physical pixels, not points, and `scale` is
+/// the display's backing scale factor, which the font size is multiplied by.
 ///
 /// # Safety
 ///
@@ -108,13 +109,14 @@ pub unsafe extern "C" fn bab_terminal_new(
     layer: *mut c_void,
     width: u32,
     height: u32,
+    scale: f32,
 ) -> *mut BabTerminal {
     guard(ptr::null_mut(), || {
         if layer.is_null() || width == 0 || height == 0 {
             return ptr::null_mut();
         }
         // SAFETY: forwarded from the caller.
-        match unsafe { Terminal::new_for_metal_layer(layer, width, height) } {
+        match unsafe { Terminal::new_for_metal_layer(layer, width, height, scale) } {
             Ok(terminal) => Box::into_raw(Box::new(terminal)).cast(),
             Err(error) => {
                 eprintln!("bab: failed to create terminal: {error:#}");
@@ -160,16 +162,21 @@ pub unsafe extern "C" fn bab_terminal_frame(handle: *mut BabTerminal) -> bool {
     }
 }
 
-/// Resize to a new physical pixel size.
+/// Resize to a new physical pixel size, at the display's backing scale factor.
 ///
 /// # Safety
 ///
 /// `handle` must be live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn bab_terminal_resize(handle: *mut BabTerminal, width: u32, height: u32) {
+pub unsafe extern "C" fn bab_terminal_resize(
+    handle: *mut BabTerminal,
+    width: u32,
+    height: u32,
+    scale: f32,
+) {
     unsafe {
         with(handle, (), |terminal| {
-            if let Err(error) = terminal.resize(width, height) {
+            if let Err(error) = terminal.resize(width, height, scale) {
                 eprintln!("bab: resize failed: {error:#}");
             }
         });

@@ -280,6 +280,19 @@ impl Renderer {
         self.metrics
     }
 
+    /// Change the font size, in physical pixels, and remeasure the cell.
+    ///
+    /// The shaping cache survives: shaped positions are in font design units and do
+    /// not depend on size. Atlas entries are keyed by size, so nothing is invalidated.
+    pub fn set_font_size(&mut self, size_px: f32) -> Result<()> {
+        if (size_px - self.font_size).abs() < f32::EPSILON {
+            return Ok(());
+        }
+        self.metrics = GridMetrics::measure(&self.fonts, size_px)?;
+        self.font_size = size_px;
+        Ok(())
+    }
+
     pub const fn set_palette(&mut self, palette: Palette) {
         self.palette = palette;
     }

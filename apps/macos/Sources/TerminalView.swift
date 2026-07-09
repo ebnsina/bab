@@ -37,12 +37,18 @@ final class TerminalView: NSView {
         layer as? CAMetalLayer
     }
 
+    private var backingScale: CGFloat {
+        window?.backingScaleFactor ?? 1.0
+    }
+
     /// Physical pixels, which is what the core wants. Points would render at 1x on a
     /// Retina display and look soft.
     private var pixelSize: (UInt32, UInt32) {
-        let scale = window?.backingScaleFactor ?? 1.0
         let size = bounds.size
-        return (UInt32(max(size.width * scale, 1)), UInt32(max(size.height * scale, 1)))
+        return (
+            UInt32(max(size.width * backingScale, 1)),
+            UInt32(max(size.height * backingScale, 1))
+        )
     }
 
     // MARK: - Lifecycle
@@ -53,7 +59,8 @@ final class TerminalView: NSView {
 
         updateLayerScale()
         let (width, height) = pixelSize
-        terminal = bab_terminal_new(Unmanaged.passUnretained(layer).toOpaque(), width, height)
+        terminal = bab_terminal_new(
+            Unmanaged.passUnretained(layer).toOpaque(), width, height, Float(backingScale))
 
         if terminal == nil {
             presentFailureAndExit()
@@ -79,8 +86,8 @@ final class TerminalView: NSView {
     }
 
     private func updateLayerScale() {
-        guard let layer = metalLayer, let window else { return }
-        layer.contentsScale = window.backingScaleFactor
+        guard let layer = metalLayer, window != nil else { return }
+        layer.contentsScale = backingScale
         let (width, height) = pixelSize
         layer.drawableSize = CGSize(width: Int(width), height: Int(height))
     }
@@ -89,7 +96,7 @@ final class TerminalView: NSView {
         guard let terminal else { return }
         updateLayerScale()
         let (width, height) = pixelSize
-        bab_terminal_resize(terminal, width, height)
+        bab_terminal_resize(terminal, width, height, Float(backingScale))
     }
 
     private func tick() {

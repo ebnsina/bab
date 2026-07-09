@@ -44,8 +44,10 @@ enum {
 };
 
 // Create a terminal drawing into a CAMetalLayer and spawn the user's shell.
-// Size is in physical pixels. Returns NULL on failure. Main thread only.
-BabTerminal *bab_terminal_new(void *layer, uint32_t width, uint32_t height);
+// Size is in physical pixels and `scale` is the display's backing scale factor; the
+// font size is multiplied by it. Returns NULL on failure. Main thread only.
+BabTerminal *bab_terminal_new(void *layer, uint32_t width, uint32_t height,
+                              float scale);
 
 // Destroy a terminal. NULL is allowed.
 void bab_terminal_free(BabTerminal *handle);
@@ -54,8 +56,9 @@ void bab_terminal_free(BabTerminal *handle);
 // Returns false once the shell has exited, which is the cue to close the window.
 bool bab_terminal_frame(BabTerminal *handle);
 
-// Resize to a new physical pixel size.
-void bab_terminal_resize(BabTerminal *handle, uint32_t width, uint32_t height);
+// Resize to a new physical pixel size, at the display's backing scale factor.
+void bab_terminal_resize(BabTerminal *handle, uint32_t width, uint32_t height,
+                         float scale);
 
 // Tell the terminal whether its window has keyboard focus.
 void bab_terminal_set_focused(BabTerminal *handle, bool focused);

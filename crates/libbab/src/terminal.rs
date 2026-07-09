@@ -13,7 +13,8 @@ use bab_text::{Face, FontStack};
 const GEIST_MONO: &[u8] = include_bytes!("../../../assets/fonts/GeistMono-Regular.ttf");
 const NOTO_BENGALI: &[u8] = include_bytes!("../../../assets/fonts/NotoSansBengali-Regular.ttf");
 
-const FONT_SIZE: f32 = 14.0;
+/// Font size in points. Physical pixels are this times the display's scale factor.
+const FONT_POINTS: f32 = 14.0;
 
 /// A terminal bound to one platform surface.
 #[derive(Debug)]
@@ -34,6 +35,7 @@ impl Terminal {
         layer: *mut std::ffi::c_void,
         width: u32,
         height: u32,
+        scale: f32,
     ) -> Result<Self> {
         let fonts = FontStack::new(vec![
             Face::new("Geist Mono", Arc::new(GEIST_MONO.to_vec()))?,
@@ -41,8 +43,9 @@ impl Terminal {
         ])?;
 
         // SAFETY: forwarded from the caller.
-        let renderer =
-            unsafe { Renderer::new_for_metal_layer(layer, width, height, fonts, FONT_SIZE)? };
+        let renderer = unsafe {
+            Renderer::new_for_metal_layer(layer, width, height, fonts, font_pixels(scale))?
+        };
 
         let size = grid_size(&renderer, width, height);
         let session = Session::spawn(Command::default(), size)?;
@@ -73,7 +76,11 @@ impl Terminal {
     }
 
     /// Resize to a new pixel size, telling the shell about its new cell count.
-    pub fn resize(&mut self, width: u32, height: u32) -> Result<()> {
+    ///
+    /// `scale` can change when a window moves between displays, so the font is
+    /// remeasured every time rather than only at startup.
+    pub fn resize(&mut self, width: u32, height: u32, scale: f32) -> Result<()> {
+        self.renderer.set_font_size(font_pixels(scale))?;
         self.renderer.resize(width, height);
         let size = grid_size(&self.renderer, width, height);
         self.session.resize(size)
@@ -119,6 +126,14 @@ impl Terminal {
     pub fn paste(&mut self, text: &str) -> Result<()> {
         self.session.paste(text)
     }
+}
+
+/// The font size in physical pixels for a display of the given scale.
+///
+/// Sizes cross the platform boundary in pixels, so the font must be scaled too.
+/// Leaving it in points renders the text at half size on a Retina display.
+fn font_pixels(scale: f32) -> f32 {
+    FONT_POINTS * scale.max(1.0)
 }
 
 /// How many whole cells fit in a pixel rectangle. Never zero: a zero-sized pty is
