@@ -24,9 +24,14 @@ The name is a promise the project has not kept yet.
 
 ## Status
 
-Early, but the core pipeline runs end to end: a real shell on a pseudoterminal, parsed into a
-cluster-aware grid, shaped with HarfBuzz, and drawn on the GPU. Bengali conjuncts, reph, and
-pre-base matras render correctly. What is missing is a window.
+Early. The pipeline runs end to end — a real shell on a pseudoterminal, parsed into a cluster-aware
+grid, shaped with HarfBuzz, drawn on the GPU, in a native AppKit window.
+
+**Bengali does not render correctly yet.** Shaping is right in isolation: conjuncts, reph, and
+pre-base matras all pass their tests, and the grid agrees with the system `wcwidth` codepoint for
+codepoint. But a real shell still drives the line out of alignment, and the cause is not yet known.
+Chasing it means capturing the raw pty byte stream and diffing what the shell believes it wrote
+against what the grid holds — measurement, not argument.
 
 ## Layout
 

@@ -230,6 +230,20 @@ pub unsafe extern "C" fn bab_terminal_key(
     }
 }
 
+/// The title the running application set, as a NUL-terminated UTF-8 string.
+///
+/// The pointer is owned by the terminal and stays valid until the next call to this
+/// function on the same handle. Copy it if you need to keep it. Returns null if the
+/// handle is null.
+///
+/// # Safety
+///
+/// `handle` must be live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bab_terminal_title(handle: *mut BabTerminal) -> *const c_char {
+    unsafe { with(handle, ptr::null(), |terminal| terminal.title().as_ptr()) }
+}
+
 /// Paste text, bracketed when the running application asked for it.
 ///
 /// # Safety

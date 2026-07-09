@@ -74,6 +74,17 @@ impl Target {
         // pass, where the choice should be measured rather than guessed.
         config.present_mode = wgpu::PresentMode::Fifo;
 
+        // Let a translucent background composite with whatever sits behind the window.
+        // The shader emits premultiplied colour, so ask for the matching mode; not
+        // every adapter offers it, so fall back rather than fail.
+        if surface
+            .get_capabilities(adapter)
+            .alpha_modes
+            .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
+        {
+            config.alpha_mode = wgpu::CompositeAlphaMode::PreMultiplied;
+        }
+
         surface.configure(device, &config);
         Ok(Self::Surface { surface, config })
     }

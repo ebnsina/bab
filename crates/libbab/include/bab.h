@@ -68,6 +68,10 @@ void bab_terminal_set_focused(BabTerminal *handle, bool focused);
 void bab_terminal_key(BabTerminal *handle, uint32_t key, const char *text,
                       uint32_t modifiers);
 
+// The title the running application set. Owned by the terminal, valid until the next
+// call on the same handle. NULL if the handle is NULL.
+const char *bab_terminal_title(BabTerminal *handle);
+
 // Paste text, bracketed when the running application asked for it.
 void bab_terminal_paste(BabTerminal *handle, const char *text);
 

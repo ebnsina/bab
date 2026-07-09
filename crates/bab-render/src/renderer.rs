@@ -61,6 +61,9 @@ pub struct CursorState {
     pub style: CursorStyle,
     /// An unfocused terminal draws a hollow box, whatever the shape.
     pub focused: bool,
+    /// False during the dark half of a blink. An unfocused cursor never blinks — it
+    /// would draw the eye to a window that is not listening.
+    pub visible: bool,
 }
 
 /// The pixel geometry of one cell, derived from the primary face.
@@ -70,23 +73,32 @@ pub struct GridMetrics {
     pub ascent: f32,
 }
 
+/// Rows are set a little looser than the font's natural line height. Terminals that
+/// pack lines tight read as dense and cramped; this is the single cheapest thing that
+/// makes long output comfortable.
+const LINE_SPACING: f32 = 1.15;
+
 impl GridMetrics {
     /// Cell width comes from the primary face's advance for `0`, which is the
-    /// monospace advance. Height comes from its vertical metrics.
+    /// monospace advance. Height comes from its vertical metrics, loosened.
     fn measure(fonts: &FontStack, size_px: f32) -> Result<Self> {
         let face = fonts.primary();
         let shaped = HarfRustShaper.shape("0", face, 0)?;
         let width = to_px(shaped.advance, face.units_per_em(), size_px);
 
         let metrics = face.metrics(size_px);
-        let height = metrics.line_height().ceil().max(1.0);
+        let natural = metrics.line_height();
+        let height = (natural * LINE_SPACING).ceil().max(1.0);
+        // Push the baseline down by half the extra space, so the leading is shared
+        // between the lines above and below rather than piled under the text.
+        let ascent = metrics.ascent + (height - natural) / 2.0;
 
         Ok(Self {
             cell: CellMetrics {
                 width: width.ceil().max(1.0),
                 height,
             },
-            ascent: metrics.ascent,
+            ascent,
         })
     }
 }
@@ -113,6 +125,7 @@ pub struct Renderer {
     font_size: f32,
     metrics: GridMetrics,
     palette: Palette,
+    padding: [f32; 2],
 }
 
 impl std::fmt::Debug for Renderer {
@@ -289,6 +302,7 @@ impl Renderer {
             font_size,
             metrics,
             palette: Palette::default(),
+            padding: [0.0, 0.0],
         })
     }
 
@@ -314,6 +328,21 @@ impl Renderer {
         self.palette = palette;
     }
 
+    #[must_use]
+    pub const fn palette(&self) -> Palette {
+        self.palette
+    }
+
+    /// Inset the grid from the window edge. Text flush against the frame looks unfinished.
+    pub const fn set_padding(&mut self, x: f32, y: f32) {
+        self.padding = [x, y];
+    }
+
+    #[must_use]
+    pub const fn padding(&self) -> [f32; 2] {
+        self.padding
+    }
+
     /// Resize the offscreen target.
     ///
     /// The viewport lives in the globals buffer, so it must be rewritten here or the
@@ -337,12 +366,12 @@ impl Renderer {
         );
     }
 
-    /// The offscreen size needed to show `rows` by `cols` cells.
+    /// The offscreen size needed to show `rows` by `cols` cells, plus padding.
     #[must_use]
     pub fn pixel_size(&self, rows: usize, cols: usize) -> (u32, u32) {
         (
-            (cols as f32 * self.metrics.cell.width).ceil() as u32,
-            (rows as f32 * self.metrics.cell.height).ceil() as u32,
+            (cols as f32 * self.metrics.cell.width + self.padding[0] * 2.0).ceil() as u32,
+            (rows as f32 * self.metrics.cell.height + self.padding[1] * 2.0).ceil() as u32,
         )
     }
 
@@ -357,6 +386,9 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
             let background = self.palette.background;
+            // The surface expects premultiplied alpha, so a translucent background
+            // must scale its channels or it washes out over whatever is behind it.
+            let alpha = f64::from(background[3]);
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("bab pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -365,10 +397,10 @@ impl Renderer {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: f64::from(background[0]),
-                            g: f64::from(background[1]),
-                            b: f64::from(background[2]),
-                            a: 1.0,
+                            r: f64::from(background[0]) * alpha,
+                            g: f64::from(background[1]) * alpha,
+                            b: f64::from(background[2]) * alpha,
+                            a: alpha,
                         }),
                         store: wgpu::StoreOp::Store,
                     },
@@ -413,21 +445,25 @@ impl Renderer {
             font_size,
             metrics,
             palette,
+            padding,
             ..
         } = self;
 
         let cell = metrics.cell;
+        let (pad_x, pad_y) = (padding[0], padding[1]);
         let mut backgrounds = Vec::new();
         let mut cursor_quads = Vec::new();
         let mut glyphs = Vec::new();
 
         // A focused block cursor covers the cell, so the glyph under it must be
         // repainted in the background colour or it disappears.
-        let inverted_cell =
-            cursor.filter(|cursor| cursor.focused && cursor.style.shape == CursorShape::Block);
+        let inverted_cell = cursor.filter(|cursor| {
+            cursor.visible && cursor.focused && cursor.style.shape == CursorShape::Block
+        });
 
-        if let Some(cursor) = cursor {
-            cursor_quads = cursor_instances(cursor, cell, palette.foreground, atlas.solid_uv());
+        if let Some(cursor) = cursor.filter(|cursor| cursor.visible) {
+            cursor_quads =
+                cursor_instances(cursor, cell, palette.accent, atlas.solid_uv(), *padding);
         }
 
         let mut runs: Vec<Run> = Vec::new();
@@ -452,8 +488,8 @@ impl Renderer {
                 if bg != palette.background {
                     backgrounds.push(Instance {
                         rect: [
-                            col as f32 * cell.width,
-                            row as f32 * cell.height,
+                            pad_x + col as f32 * cell.width,
+                            pad_y + row as f32 * cell.height,
                             cell.width,
                             cell.height,
                         ],
@@ -468,6 +504,15 @@ impl Renderer {
                     col += 1;
                     continue;
                 };
+
+                // A space ends the run too. Nothing shapes across one — not ligatures,
+                // not conjuncts — and re-anchoring each word to its own cell stops a
+                // proportional fallback face from dragging the line out of alignment.
+                if cluster.text() == " " {
+                    runs.push(Run::default());
+                    col += cluster.width() as usize;
+                    continue;
+                }
 
                 let (face_index, _) = fonts.resolve(cluster.text());
                 let extends = runs.last().is_some_and(|run| {
@@ -507,8 +552,8 @@ impl Renderer {
                 };
 
                 let upem = face.units_per_em();
-                let mut pen_x = run.start_col as f32 * cell.width;
-                let pen_y = row as f32 * cell.height + metrics.ascent;
+                let mut pen_x = pad_x + run.start_col as f32 * cell.width;
+                let pen_y = pad_y + row as f32 * cell.height + metrics.ascent;
 
                 for glyph in &shaped.glyphs {
                     let entry = atlas.entry(
@@ -625,9 +670,10 @@ fn cursor_instances(
     cell: CellMetrics,
     color: [f32; 4],
     uv: [f32; 4],
+    padding: [f32; 2],
 ) -> Vec<Instance> {
-    let x = cursor.position.col as f32 * cell.width;
-    let y = cursor.position.row as f32 * cell.height;
+    let x = padding[0] + cursor.position.col as f32 * cell.width;
+    let y = padding[1] + cursor.position.row as f32 * cell.height;
 
     let quad = |rect: [f32; 4]| Instance { rect, uv, color };
 
@@ -699,7 +745,7 @@ fn create_pipeline(
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             targets: &[Some(wgpu::ColorTargetState {
                 format,
-                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
         }),

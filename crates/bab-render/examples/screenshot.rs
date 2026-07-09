@@ -32,6 +32,7 @@ fn main() -> anyhow::Result<()> {
         load("NotoSansBengali-Regular.ttf"),
     ])?;
     let mut renderer = Renderer::new(width, height, fonts, 18.0)?;
+    renderer.set_padding(16.0, 14.0);
 
     let mut terminal = Terminal::new(6, 40);
     terminal.feed("\x1b[1;32mbab\x1b[0m \x1b[38;5;250m~ a terminal\x1b[0m\r\n".as_bytes());
@@ -47,6 +48,7 @@ fn main() -> anyhow::Result<()> {
             position: terminal.grid().cursor(),
             style: terminal.modes().cursor_style,
             focused: true,
+            visible: true,
         }),
     )?;
     let pixels = renderer.read_pixels()?;

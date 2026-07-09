@@ -1,6 +1,8 @@
 //! The pieces a native shell drives: a shell, a screen, and a renderer.
 
+use std::ffi::CString;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use bab_input::{Key, Modifiers, keyboard};
@@ -16,12 +18,27 @@ const NOTO_BENGALI: &[u8] = include_bytes!("../../../assets/fonts/NotoSansBengal
 /// Font size in points. Physical pixels are this times the display's scale factor.
 const FONT_POINTS: f32 = 14.0;
 
+/// Inset from the window edge, in points. Text flush against the frame looks unfinished.
+const PADDING_POINTS: f32 = 12.0;
+
+/// How opaque the window is. Slightly translucent, to sit on the vibrancy behind it.
+const BACKGROUND_ALPHA: f32 = 0.92;
+
+/// Half of a full blink. macOS uses roughly this, and matching it makes `bab` feel
+/// like it belongs on the system rather than merely running on it.
+const BLINK_INTERVAL: Duration = Duration::from_millis(530);
+
 /// A terminal bound to one platform surface.
 #[derive(Debug)]
 pub struct Terminal {
     session: Session,
     renderer: Renderer,
     focused: bool,
+    /// When the cursor last moved or the user last typed. Blinking restarts from
+    /// solid on every keystroke, so the cursor is never invisible while you type.
+    blink_epoch: Instant,
+    /// Owned so the C API can hand out a pointer that stays valid until the next call.
+    title: CString,
 }
 
 impl Terminal {
@@ -43,9 +60,14 @@ impl Terminal {
         ])?;
 
         // SAFETY: forwarded from the caller.
-        let renderer = unsafe {
+        let mut renderer = unsafe {
             Renderer::new_for_metal_layer(layer, width, height, fonts, font_pixels(scale))?
         };
+        renderer.set_padding(PADDING_POINTS * scale, PADDING_POINTS * scale);
+
+        let mut palette = renderer.palette();
+        palette.set_background_alpha(BACKGROUND_ALPHA);
+        renderer.set_palette(palette);
 
         let size = grid_size(&renderer, width, height);
         let session = Session::spawn(Command::default(), size)?;
@@ -54,25 +76,53 @@ impl Terminal {
             session,
             renderer,
             focused: true,
+            blink_epoch: Instant::now(),
+            title: CString::default(),
         })
     }
 
     /// Apply pending output and draw one frame. Returns whether the shell is alive.
     pub fn frame(&mut self) -> Result<bool> {
-        self.session.pump()?;
+        if self.session.pump()? {
+            // New output usually means the cursor moved. Restart the blink solid.
+            self.blink_epoch = Instant::now();
+        }
         if self.session.is_closed() {
             return Ok(false);
         }
 
+        let focused = self.focused;
+        let blink_on = self.blink_phase();
         let terminal = self.session.terminal();
-        let cursor = terminal.modes().cursor_visible.then(|| CursorState {
+        let modes = terminal.modes();
+
+        let cursor = modes.cursor_visible.then(|| CursorState {
             position: terminal.grid().cursor(),
-            style: terminal.modes().cursor_style,
-            focused: self.focused,
+            style: modes.cursor_style,
+            focused,
+            // An unfocused cursor never blinks: it must not pull the eye to a window
+            // that is not listening.
+            visible: !focused || !modes.cursor_style.blink || blink_on,
         });
 
         self.renderer.render(terminal.grid(), cursor)?;
         Ok(true)
+    }
+
+    /// Whether the cursor is in the lit half of its blink.
+    fn blink_phase(&self) -> bool {
+        let elapsed = self.blink_epoch.elapsed().as_millis();
+        let interval = BLINK_INTERVAL.as_millis();
+        (elapsed / interval).is_multiple_of(2)
+    }
+
+    /// The title the running application asked for, or the default. Never null.
+    pub fn title(&mut self) -> &CString {
+        let wanted = self.session.terminal().title().unwrap_or("bab");
+        if self.title.to_str() != Ok(wanted) {
+            self.title = CString::new(wanted).unwrap_or_default();
+        }
+        &self.title
     }
 
     /// Resize to a new pixel size, telling the shell about its new cell count.
@@ -81,6 +131,8 @@ impl Terminal {
     /// remeasured every time rather than only at startup.
     pub fn resize(&mut self, width: u32, height: u32, scale: f32) -> Result<()> {
         self.renderer.set_font_size(font_pixels(scale))?;
+        self.renderer
+            .set_padding(PADDING_POINTS * scale, PADDING_POINTS * scale);
         self.renderer.resize(width, height);
         let size = grid_size(&self.renderer, width, height);
         self.session.resize(size)
@@ -105,6 +157,7 @@ impl Terminal {
                     !modifiers.contains(Modifiers::CONTROL) && !modifiers.contains(Modifiers::ALT);
                 if plain {
                     if !text.is_empty() {
+                        self.blink_epoch = Instant::now();
                         self.session.send(text.as_bytes())?;
                     }
                     return Ok(());
@@ -117,6 +170,7 @@ impl Terminal {
         };
 
         if let Some(bytes) = keyboard::encode(&key, modifiers, &modes) {
+            self.blink_epoch = Instant::now();
             self.session.send(&bytes)?;
         }
         Ok(())
@@ -140,7 +194,14 @@ fn font_pixels(scale: f32) -> f32 {
 /// invalid, and applications divide by the cell count.
 fn grid_size(renderer: &Renderer, width: u32, height: u32) -> Size {
     let cell = renderer.metrics().cell;
-    let cols = (width as f32 / cell.width).floor().max(1.0);
-    let rows = (height as f32 / cell.height).floor().max(1.0);
+    let [pad_x, pad_y] = renderer.padding();
+
+    // Padding eats into the drawable area, so the shell gets fewer cells than the
+    // window would otherwise hold. Forgetting this hides the last row under the edge.
+    let usable_width = (width as f32 - pad_x * 2.0).max(cell.width);
+    let usable_height = (height as f32 - pad_y * 2.0).max(cell.height);
+
+    let cols = (usable_width / cell.width).floor().max(1.0);
+    let rows = (usable_height / cell.height).floor().max(1.0);
     Size::new(rows as u16, cols as u16)
 }

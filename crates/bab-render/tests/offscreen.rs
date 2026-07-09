@@ -216,6 +216,7 @@ fn cursor_at(col: usize, shape: CursorShape, focused: bool) -> CursorState {
             blink: false,
         },
         focused,
+        visible: true,
     }
 }
 
@@ -225,6 +226,17 @@ fn no_cursor_draws_nothing_extra() {
         return;
     };
     assert_eq!(ink(&without, &Palette::default()), 0);
+}
+
+/// The dark half of a blink draws nothing, exactly as if there were no cursor.
+#[test]
+fn an_invisible_cursor_draws_nothing() {
+    let mut state = cursor_at(0, CursorShape::Block, true);
+    state.visible = false;
+    let Some(pixels) = render_with_cursor("", Some(state)) else {
+        return;
+    };
+    assert_eq!(ink(&pixels, &Palette::default()), 0);
 }
 
 #[test]

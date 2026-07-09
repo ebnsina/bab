@@ -62,6 +62,7 @@ fn main() -> anyhow::Result<()> {
             position: terminal.grid().cursor(),
             style: terminal.modes().cursor_style,
             focused: true,
+            visible: true,
         }),
     )?;
 

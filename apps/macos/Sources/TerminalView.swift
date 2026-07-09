@@ -23,8 +23,9 @@ final class TerminalView: NSView {
     override func makeBackingLayer() -> CALayer {
         let layer = CAMetalLayer()
         layer.pixelFormat = .bgra8Unorm
-        // Drawing continues while the window is resized, rather than stretching the
-        // last frame.
+        // The core clears to a translucent background, so the vibrancy view behind
+        // this layer has to show through.
+        layer.isOpaque = false
         layer.presentsWithTransaction = false
         layer.needsDisplayOnBoundsChange = true
         return layer
@@ -104,6 +105,18 @@ final class TerminalView: NSView {
         if !bab_terminal_frame(terminal) {
             teardown()
             NSApp.terminate(nil)
+            return
+        }
+        syncTitle()
+    }
+
+    /// Applications set the title with OSC 2. A window that never renames itself is
+    /// one of the small things that makes a terminal feel unfinished.
+    private func syncTitle() {
+        guard let terminal, let raw = bab_terminal_title(terminal) else { return }
+        let title = String(cString: raw)
+        if window?.title != title {
+            window?.title = title
         }
     }
 

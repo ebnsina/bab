@@ -52,5 +52,8 @@ fn vs_main(@builtin(vertex_index) vertex_index: u32, instance: Instance) -> Vert
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     let coverage = textureSample(atlas_texture, atlas_sampler, in.uv).r;
-    return vec4<f32>(in.color.rgb, in.color.a * coverage);
+    // Premultiplied: the surface composites against the window behind it, and the
+    // pipeline blends with ONE rather than SRC_ALPHA.
+    let alpha = in.color.a * coverage;
+    return vec4<f32>(in.color.rgb * alpha, alpha);
 }
