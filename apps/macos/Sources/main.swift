@@ -74,8 +74,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appItem.submenu = appMenu
         mainMenu.addItem(appItem)
 
+        // The items carry no action: `performKeyEquivalent` on the terminal view
+        // handles the chords. They exist so the shortcuts are discoverable.
         let editItem = NSMenuItem()
         let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Copy", action: nil, keyEquivalent: "c")
         editMenu.addItem(withTitle: "Paste", action: nil, keyEquivalent: "v")
         editItem.submenu = editMenu
         mainMenu.addItem(editItem)

@@ -8,6 +8,7 @@ use std::ffi::{CStr, c_char, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
 
+use bab_input::mouse::{MouseButton, MouseEventKind};
 use bab_input::{Key, Modifiers};
 
 use crate::terminal::Terminal;
@@ -41,6 +42,35 @@ pub enum BabKey {
     Insert = 13,
     Delete = 14,
     F1 = 101,
+}
+
+/// Mouse event kinds, matching `BAB_MOUSE_*` in the header.
+pub const BAB_MOUSE_PRESS: u32 = 0;
+pub const BAB_MOUSE_RELEASE: u32 = 1;
+pub const BAB_MOUSE_MOTION: u32 = 2;
+
+/// Mouse buttons. `BAB_BUTTON_NONE` means motion with nothing held.
+pub const BAB_BUTTON_LEFT: u32 = 0;
+pub const BAB_BUTTON_MIDDLE: u32 = 1;
+pub const BAB_BUTTON_RIGHT: u32 = 2;
+pub const BAB_BUTTON_NONE: u32 = 3;
+
+const fn mouse_kind(kind: u32) -> Option<MouseEventKind> {
+    Some(match kind {
+        BAB_MOUSE_PRESS => MouseEventKind::Press,
+        BAB_MOUSE_RELEASE => MouseEventKind::Release,
+        BAB_MOUSE_MOTION => MouseEventKind::Motion,
+        _ => return None,
+    })
+}
+
+const fn mouse_button(button: u32) -> Option<MouseButton> {
+    Some(match button {
+        BAB_BUTTON_LEFT => MouseButton::Left,
+        BAB_BUTTON_MIDDLE => MouseButton::Middle,
+        BAB_BUTTON_RIGHT => MouseButton::Right,
+        _ => return None,
+    })
 }
 
 /// Modifier bits, matching `bab_input::Modifiers`.
@@ -242,6 +272,64 @@ pub unsafe extern "C" fn bab_terminal_key(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn bab_terminal_title(handle: *mut BabTerminal) -> *const c_char {
     unsafe { with(handle, ptr::null(), |terminal| terminal.title().as_ptr()) }
+}
+
+/// Report a mouse event at a pixel position inside the view.
+///
+/// Applications that requested mouse reporting receive the event; holding shift
+/// overrides that and selects text instead.
+///
+/// # Safety
+///
+/// `handle` must be live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bab_terminal_mouse(
+    handle: *mut BabTerminal,
+    kind: u32,
+    button: u32,
+    x: f32,
+    y: f32,
+    modifiers: u32,
+    clicks: u32,
+) {
+    let Some(kind) = mouse_kind(kind) else {
+        return;
+    };
+    unsafe {
+        with(handle, (), |terminal| {
+            let modifiers = Modifiers::from_bits((modifiers & 0xff) as u8);
+            let result = terminal.mouse(kind, mouse_button(button), x, y, modifiers, clicks);
+            if let Err(error) = result {
+                eprintln!("bab: mouse failed: {error:#}");
+            }
+        });
+    }
+}
+
+/// The selected text, as a NUL-terminated UTF-8 string, empty when nothing is selected.
+///
+/// Owned by the terminal and valid until the next call on the same handle.
+///
+/// # Safety
+///
+/// `handle` must be live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bab_terminal_selection(handle: *mut BabTerminal) -> *const c_char {
+    unsafe {
+        with(handle, ptr::null(), |terminal| {
+            terminal.selection_text().as_ptr()
+        })
+    }
+}
+
+/// Drop the current selection.
+///
+/// # Safety
+///
+/// `handle` must be live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bab_terminal_clear_selection(handle: *mut BabTerminal) {
+    unsafe { with(handle, (), Terminal::clear_selection) }
 }
 
 /// Paste text, bracketed when the running application asked for it.

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use bab_text::{Face, FontStack, HarfRustShaper, Shaper};
 
 const BENGALI: &str = "NotoSansBengali-Regular.ttf";
-const MONO: &str = "FiraCodeNerdFontMono-Regular.ttf";
+const MONO: &str = "JetBrainsMonoNerdFontMono-Regular.ttf";
 
 fn load(file: &str) -> Face {
     let path: PathBuf = [
@@ -27,7 +27,7 @@ fn load(file: &str) -> Face {
     Face::new(file, Arc::new(bytes)).expect("parsing font")
 }
 
-/// Fira Code first, Noto Sans Bengali behind it: the shipped default chain.
+/// JetBrains Mono first, Noto Sans Bengali behind it: the shipped default chain.
 fn stack() -> FontStack {
     FontStack::new(vec![load(MONO), load(BENGALI)]).unwrap()
 }

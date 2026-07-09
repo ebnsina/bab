@@ -11,8 +11,10 @@ use bab_vt::{Attrs, Color, Flags};
 pub struct Palette {
     pub foreground: [f32; 4],
     pub background: [f32; 4],
-    /// Drawn under the cursor, and behind the selection.
+    /// Drawn under the cursor.
     pub accent: [f32; 4],
+    /// Drawn behind selected cells. Translucent, so the text stays legible.
+    pub selection: [f32; 4],
     pub ansi: [[f32; 4]; 16],
 }
 
@@ -29,6 +31,7 @@ impl Default for Palette {
             foreground: rgb(0xC8, 0xD0, 0xDA),
             background: rgb(0x11, 0x14, 0x1A),
             accent: rgb(0x7A, 0xA2, 0xF7),
+            selection: [0.48, 0.63, 0.97, 0.30],
             ansi: [
                 rgb(0x1B, 0x1F, 0x27), // black
                 rgb(0xF7, 0x76, 0x8E), // red

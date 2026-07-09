@@ -29,7 +29,7 @@ fn load(file: &str) -> Face {
 
 fn fonts() -> FontStack {
     FontStack::new(vec![
-        load("FiraCodeNerdFontMono-Regular.ttf"),
+        load("JetBrainsMonoNerdFontMono-Regular.ttf"),
         load("NotoSansBengali-Regular.ttf"),
     ])
     .unwrap()
@@ -371,4 +371,36 @@ fn a_blank_cell_breaks_the_run() {
         return;
     };
     assert_ne!(spaced, joined);
+}
+
+// ---- selection -------------------------------------------------------------
+
+/// A selected span is tinted, and an empty selection changes nothing.
+#[test]
+fn a_selection_tints_its_cells() {
+    use bab_vt::{Selection, SelectionMode};
+
+    let Some(mut renderer) = renderer() else {
+        return;
+    };
+    let mut terminal = Terminal::new(4, 20);
+    terminal.feed(b"hello world");
+
+    renderer.render(terminal.grid(), None).expect("render");
+    let plain = renderer.read_pixels().expect("readback");
+
+    let mut selection = Selection::new(Cursor { row: 0, col: 0 }, SelectionMode::Cell);
+    selection.drag_to(Cursor { row: 0, col: 4 });
+    renderer
+        .render_with_selection(terminal.grid(), None, Some(&selection))
+        .expect("render");
+    let selected = renderer.read_pixels().expect("readback");
+
+    assert_ne!(plain, selected, "the selection should be visible");
+
+    let empty = Selection::new(Cursor { row: 0, col: 0 }, SelectionMode::Cell);
+    renderer
+        .render_with_selection(terminal.grid(), None, Some(&empty))
+        .expect("render");
+    assert_eq!(renderer.read_pixels().expect("readback"), plain);
 }

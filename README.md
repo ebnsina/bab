@@ -66,15 +66,16 @@ serves AppKit, GTK4, and WinUI3, so the terminal is written once and the window 
 ## Fonts
 
 `bab` bundles its fallback chain rather than trusting system font fallback, which resolves
-differently on every machine. The default grid font is Fira Code Nerd Font Mono: programming
-ligatures, and the Nerd Font icon range that prompts rely on.
+differently on every machine. The default grid font is JetBrains Mono Nerd Font Mono: programming
+ligatures, a tall x-height that reads well at small sizes, and the Nerd Font icon range that prompts
+rely on.
 
 It has no Bengali glyphs at all. Noto Sans Bengali sits behind it in the chain, which is why the
 chain is a component and not a convenience.
 
 | Font | Copyright | License |
 |---|---|---|
-| [Fira Code](https://github.com/tonsky/FiraCode), patched by [Nerd Fonts](https://github.com/ryanoasis/nerd-fonts) | 2014 The Fira Code Project Authors | SIL OFL 1.1 |
+| [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono), patched by [Nerd Fonts](https://github.com/ryanoasis/nerd-fonts) | 2020 The JetBrains Mono Project Authors | SIL OFL 1.1 |
 | [Noto Sans Bengali](https://github.com/notofonts/bengali) | 2022 The Noto Project Authors | SIL OFL 1.1 |
 
 License texts live beside the fonts in `assets/fonts/`.

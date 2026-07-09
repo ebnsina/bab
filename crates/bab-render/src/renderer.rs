@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use bab_text::{CellMetrics, FontStack, HarfRustShaper, ShapedCluster, Shaper, to_px};
-use bab_vt::{Cursor, CursorShape, CursorStyle, Grid};
+use bab_vt::{Cursor, CursorShape, CursorStyle, Grid, Selection};
 use bytemuck::{Pod, Zeroable};
 
 use crate::atlas::{Atlas, GlyphKey};
@@ -375,9 +375,19 @@ impl Renderer {
         )
     }
 
-    /// Draw `grid` into the target, with an optional cursor. Presents when windowed.
+    /// Draw `grid` into the target. Presents when windowed.
     pub fn render(&mut self, grid: &Grid, cursor: Option<CursorState>) -> Result<()> {
-        let instances = self.build_instances(grid, cursor)?;
+        self.render_with_selection(grid, cursor, None)
+    }
+
+    /// Draw `grid`, highlighting `selection`. Presents when windowed.
+    pub fn render_with_selection(
+        &mut self,
+        grid: &Grid,
+        cursor: Option<CursorState>,
+        selection: Option<&Selection>,
+    ) -> Result<()> {
+        let instances = self.build_instances(grid, cursor, selection)?;
         self.upload_instances(&instances);
 
         let frame = self.target.acquire(&self.device)?;
@@ -434,6 +444,7 @@ impl Renderer {
         &mut self,
         grid: &Grid,
         cursor: Option<CursorState>,
+        selection: Option<&Selection>,
     ) -> Result<Vec<Instance>> {
         // Destructured so the atlas and rasterizer can be borrowed at the same time.
         let Self {
@@ -478,6 +489,20 @@ impl Renderer {
                     continue;
                 };
                 let (mut fg, bg) = palette.colors_for(cell_data.attrs);
+
+                let selected = selection.is_some_and(|s| s.contains(grid, row, col));
+                if selected {
+                    backgrounds.push(Instance {
+                        rect: [
+                            pad_x + col as f32 * cell.width,
+                            pad_y + row as f32 * cell.height,
+                            cell.width,
+                            cell.height,
+                        ],
+                        uv: atlas.solid_uv(),
+                        color: palette.selection,
+                    });
+                }
 
                 let under_cursor =
                     inverted_cell.is_some_and(|c| c.position.row == row && c.position.col == col);

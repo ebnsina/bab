@@ -37,6 +37,19 @@ enum {
 };
 
 enum {
+  BAB_MOUSE_PRESS = 0,
+  BAB_MOUSE_RELEASE = 1,
+  BAB_MOUSE_MOTION = 2,
+};
+
+enum {
+  BAB_BUTTON_LEFT = 0,
+  BAB_BUTTON_MIDDLE = 1,
+  BAB_BUTTON_RIGHT = 2,
+  BAB_BUTTON_NONE = 3,
+};
+
+enum {
   BAB_MOD_SHIFT = 1,
   BAB_MOD_ALT = 2,
   BAB_MOD_CONTROL = 4,
@@ -71,6 +84,18 @@ void bab_terminal_key(BabTerminal *handle, uint32_t key, const char *text,
 // The title the running application set. Owned by the terminal, valid until the next
 // call on the same handle. NULL if the handle is NULL.
 const char *bab_terminal_title(BabTerminal *handle);
+
+// Report a mouse event at a pixel position inside the view. Applications that asked
+// for mouse reporting receive it; holding shift selects text instead.
+void bab_terminal_mouse(BabTerminal *handle, uint32_t kind, uint32_t button, float x,
+                        float y, uint32_t modifiers, uint32_t clicks);
+
+// The selected text, empty when nothing is selected. Owned by the terminal, valid
+// until the next call on the same handle.
+const char *bab_terminal_selection(BabTerminal *handle);
+
+// Drop the current selection.
+void bab_terminal_clear_selection(BabTerminal *handle);
 
 // Paste text, bracketed when the running application asked for it.
 void bab_terminal_paste(BabTerminal *handle, const char *text);

@@ -172,16 +172,71 @@ final class TerminalView: NSView {
         }
     }
 
-    /// Cmd-V pastes; every other Cmd chord belongs to the menu, not the shell.
+    /// Cmd-C copies, Cmd-V pastes. Every other Cmd chord belongs to the menu.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard event.modifierFlags.contains(.command),
-              event.charactersIgnoringModifiers == "v",
-              let terminal,
-              let text = NSPasteboard.general.string(forType: .string)
-        else { return false }
+        guard event.modifierFlags.contains(.command), let terminal else { return false }
 
-        text.withCString { bab_terminal_paste(terminal, $0) }
+        switch event.charactersIgnoringModifiers {
+        case "c":
+            return copySelection(terminal)
+        case "v":
+            guard let text = NSPasteboard.general.string(forType: .string) else { return false }
+            text.withCString { bab_terminal_paste(terminal, $0) }
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Cmd-C with nothing selected must fall through: in a terminal it is ctrl-C that
+    /// interrupts, but a user who copies nothing should not silently clear the board.
+    private func copySelection(_ terminal: OpaquePointer) -> Bool {
+        guard let raw = bab_terminal_selection(terminal) else { return false }
+        let text = String(cString: raw)
+        guard !text.isEmpty else { return false }
+
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
         return true
+    }
+
+    // MARK: - Mouse
+
+    /// Pixels inside the view, top-left origin, matching what the core expects.
+    private func pixelPoint(_ event: NSEvent) -> CGPoint {
+        let local = convert(event.locationInWindow, from: nil)
+        return CGPoint(x: local.x * backingScale, y: local.y * backingScale)
+    }
+
+    private func report(
+        _ event: NSEvent, kind: UInt32, button: UInt32, clicks: UInt32 = 1
+    ) {
+        guard let terminal else { return }
+        let point = pixelPoint(event)
+        bab_terminal_mouse(
+            terminal, kind, button, Float(point.x), Float(point.y),
+            babModifiers(event.modifierFlags), clicks)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        report(event, kind: UInt32(BAB_MOUSE_PRESS), button: UInt32(BAB_BUTTON_LEFT),
+               clicks: UInt32(max(event.clickCount, 1)))
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        report(event, kind: UInt32(BAB_MOUSE_MOTION), button: UInt32(BAB_BUTTON_LEFT))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        report(event, kind: UInt32(BAB_MOUSE_RELEASE), button: UInt32(BAB_BUTTON_LEFT))
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        report(event, kind: UInt32(BAB_MOUSE_PRESS), button: UInt32(BAB_BUTTON_RIGHT))
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        report(event, kind: UInt32(BAB_MOUSE_RELEASE), button: UInt32(BAB_BUTTON_RIGHT))
     }
 
     private func babModifiers(_ flags: NSEvent.ModifierFlags) -> UInt32 {

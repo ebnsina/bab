@@ -28,7 +28,7 @@ fn main() -> anyhow::Result<()> {
     let (width, height) = (560, 150);
 
     let fonts = FontStack::new(vec![
-        load("FiraCodeNerdFontMono-Regular.ttf"),
+        load("JetBrainsMonoNerdFontMono-Regular.ttf"),
         load("NotoSansBengali-Regular.ttf"),
     ])?;
     let mut renderer = Renderer::new(width, height, fonts, 18.0)?;
