@@ -3,6 +3,9 @@
 //! Selection is a UI concept laid over the grid. It never touches terminal state, and
 //! it addresses cells, not codepoints — a cluster is selected or it is not, so a
 //! conjunct can never be cut in half.
+//!
+//! Coordinates are *viewport* rows, so a selection made while scrolled into history
+//! reads the history rather than the live screen sitting underneath it.
 
 use crate::cell::Cell;
 use crate::grid::{Cursor, Grid};
@@ -141,7 +144,7 @@ impl Selection {
 
             let mut line = String::new();
             for col in first..=last.min(grid.cols() - 1) {
-                if let Some(cluster) = grid.cell(row, col).and_then(Cell::cluster) {
+                if let Some(cluster) = grid.display_cell(row, col).and_then(Cell::cluster) {
                     line.push_str(cluster.text());
                 }
             }
@@ -156,7 +159,11 @@ impl Selection {
 }
 
 fn cell_char(grid: &Grid, row: usize, col: usize) -> Option<char> {
-    grid.cell(row, col)?.cluster()?.text().chars().next()
+    grid.display_cell(row, col)?
+        .cluster()?
+        .text()
+        .chars()
+        .next()
 }
 
 fn is_separator(grid: &Grid, row: usize, col: usize) -> bool {

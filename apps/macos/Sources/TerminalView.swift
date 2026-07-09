@@ -239,6 +239,30 @@ final class TerminalView: NSView {
         report(event, kind: UInt32(BAB_MOUSE_RELEASE), button: UInt32(BAB_BUTTON_RIGHT))
     }
 
+    /// A trackpad reports fractional lines, so the remainder carries between events.
+    /// Rounding each one to zero would make a slow two-finger drag scroll nothing.
+    private var scrollRemainder: CGFloat = 0
+
+    override func scrollWheel(with event: NSEvent) {
+        guard let terminal else { return }
+
+        let lines: CGFloat
+        if event.hasPreciseScrollingDeltas {
+            // A precise delta is in points, so it has to be divided by the real row
+            // height. The core knows it; guessing here makes scrolling feel wrong.
+            let rowHeight = max(CGFloat(bab_terminal_cell_height(terminal)) / backingScale, 1)
+            scrollRemainder += event.scrollingDeltaY / rowHeight
+            lines = scrollRemainder.rounded(.towardZero)
+            scrollRemainder -= lines
+        } else {
+            // A wheel notch already reports whole lines.
+            lines = event.scrollingDeltaY
+        }
+
+        guard lines != 0 else { return }
+        bab_terminal_scroll(terminal, Int32(lines))
+    }
+
     private func babModifiers(_ flags: NSEvent.ModifierFlags) -> UInt32 {
         var modifiers: UInt32 = 0
         if flags.contains(.shift) { modifiers |= UInt32(BAB_MOD_SHIFT) }

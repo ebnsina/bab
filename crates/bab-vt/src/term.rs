@@ -55,6 +55,12 @@ impl Terminal {
         self.state.grid()
     }
 
+    /// The active screen, mutably. Scrolling the viewport is the only reason a caller
+    /// needs this: terminal state itself is driven entirely by [`Terminal::feed`].
+    pub const fn grid_mut(&mut self) -> &mut Grid {
+        self.state.grid_mut()
+    }
+
     #[must_use]
     pub const fn modes(&self) -> &Modes {
         &self.state.modes

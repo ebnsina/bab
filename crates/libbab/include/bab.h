@@ -90,6 +90,13 @@ const char *bab_terminal_title(BabTerminal *handle);
 void bab_terminal_mouse(BabTerminal *handle, uint32_t kind, uint32_t button, float x,
                         float y, uint32_t modifiers, uint32_t clicks);
 
+// The height of one cell, in physical pixels. Zero if the handle is NULL.
+float bab_terminal_cell_height(BabTerminal *handle);
+
+// Scroll the viewport. Positive scrolls back into history, negative toward the live
+// screen. On the alternate screen the wheel becomes arrow keys instead.
+void bab_terminal_scroll(BabTerminal *handle, int32_t lines);
+
 // The selected text, empty when nothing is selected. Owned by the terminal, valid
 // until the next call on the same handle.
 const char *bab_terminal_selection(BabTerminal *handle);

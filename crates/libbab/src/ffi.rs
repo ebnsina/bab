@@ -306,6 +306,33 @@ pub unsafe extern "C" fn bab_terminal_mouse(
     }
 }
 
+/// The height of one cell, in physical pixels. Zero if the handle is null.
+///
+/// # Safety
+///
+/// `handle` must be live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bab_terminal_cell_height(handle: *mut BabTerminal) -> f32 {
+    unsafe { with(handle, 0.0, |terminal| terminal.cell_height()) }
+}
+
+/// Scroll the viewport. Positive scrolls back into history, negative toward the live
+/// screen. On the alternate screen the wheel becomes arrow keys instead.
+///
+/// # Safety
+///
+/// `handle` must be live.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bab_terminal_scroll(handle: *mut BabTerminal, lines: i32) {
+    unsafe {
+        with(handle, (), |terminal| {
+            if let Err(error) = terminal.scroll(lines) {
+                eprintln!("bab: scroll failed: {error:#}");
+            }
+        });
+    }
+}
+
 /// The selected text, as a NUL-terminated UTF-8 string, empty when nothing is selected.
 ///
 /// Owned by the terminal and valid until the next call on the same handle.

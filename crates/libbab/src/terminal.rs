@@ -109,7 +109,9 @@ impl Terminal {
         let terminal = self.session.terminal();
         let modes = terminal.modes();
 
-        let cursor = modes.cursor_visible.then(|| CursorState {
+        // A cursor drawn over history would point at a line the shell is not editing.
+        let at_bottom = terminal.grid().is_at_bottom();
+        let cursor = (modes.cursor_visible && at_bottom).then(|| CursorState {
             position: terminal.grid().cursor(),
             style: modes.cursor_style,
             focused,
@@ -172,6 +174,44 @@ impl Terminal {
             MouseEventKind::Release => self.dragging = false,
         }
         Ok(())
+    }
+
+    /// Scroll the viewport. Positive scrolls back into history.
+    ///
+    /// A full-screen application owns the alternate screen and keeps no history, so
+    /// the wheel becomes arrow keys there — which is what makes scrolling work inside
+    /// `less` and `man` without either side knowing about the other.
+    pub fn scroll(&mut self, lines: i32) -> Result<()> {
+        if lines == 0 {
+            return Ok(());
+        }
+        let modes = *self.session.terminal().modes();
+
+        if modes.alt_screen {
+            if modes.mouse_tracking != MouseTracking::Off {
+                return Ok(());
+            }
+            let key = if lines > 0 { Key::Up } else { Key::Down };
+            for _ in 0..lines.unsigned_abs() {
+                if let Some(bytes) = keyboard::encode(&key, Modifiers::NONE, &modes) {
+                    self.session.send(&bytes)?;
+                }
+            }
+            return Ok(());
+        }
+
+        let grid = self.session.terminal_mut().grid_mut();
+        if lines > 0 {
+            grid.scroll_back(lines.unsigned_abs() as usize);
+        } else {
+            grid.scroll_forward(lines.unsigned_abs() as usize);
+        }
+        Ok(())
+    }
+
+    /// Jump the viewport back to the live screen, as typing does.
+    pub fn scroll_to_bottom(&mut self) {
+        self.session.terminal_mut().grid_mut().scroll_to_bottom();
     }
 
     /// The selected text, or empty. Never null.
@@ -237,6 +277,13 @@ impl Terminal {
         self.session.resize(size)
     }
 
+    /// The height of one cell, in physical pixels. A host converting a wheel delta
+    /// into a line count needs this; guessing it makes trackpad scrolling feel wrong.
+    #[must_use]
+    pub fn cell_height(&self) -> f32 {
+        self.renderer.metrics().cell.height
+    }
+
     pub const fn set_focused(&mut self, focused: bool) {
         self.focused = focused;
     }
@@ -258,6 +305,7 @@ impl Terminal {
                     if !text.is_empty() {
                         self.blink_epoch = Instant::now();
                         self.clear_selection();
+                        self.scroll_to_bottom();
                         self.session.send(text.as_bytes())?;
                     }
                     return Ok(());
@@ -272,6 +320,8 @@ impl Terminal {
         if let Some(bytes) = keyboard::encode(&key, modifiers, &modes) {
             self.blink_epoch = Instant::now();
             self.clear_selection();
+            // Typing means you want to see what you are typing.
+            self.scroll_to_bottom();
             self.session.send(&bytes)?;
         }
         Ok(())

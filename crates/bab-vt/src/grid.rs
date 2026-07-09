@@ -56,6 +56,9 @@ pub struct Grid {
     region: ScrollRegion,
     /// `DECAWM`. When false, printing at the right edge overwrites the last cell.
     pub autowrap: bool,
+    /// How many lines of history the viewport is scrolled up by. Zero is the live
+    /// screen. Rendering and selection read through this; the terminal never does.
+    viewport_offset: usize,
     /// Head of the cluster most recently printed, if the next character could still
     /// extend it. Any cursor movement or erase invalidates this.
     open_cluster: Option<Cursor>,
@@ -80,6 +83,7 @@ impl Grid {
                 bottom: rows - 1,
             },
             autowrap: true,
+            viewport_offset: 0,
             open_cluster: None,
         }
     }
@@ -127,6 +131,70 @@ impl Grid {
     #[must_use]
     pub fn row_text(&self, row: usize) -> String {
         self.clusters(row).map(Cluster::text).collect()
+    }
+
+    // ---- viewport ----------------------------------------------------------
+
+    /// Lines the viewport is scrolled up by. Zero means the live screen.
+    #[must_use]
+    pub const fn viewport_offset(&self) -> usize {
+        self.viewport_offset
+    }
+
+    /// The furthest the viewport can scroll back.
+    #[must_use]
+    pub fn max_scroll(&self) -> usize {
+        self.scrollback.len()
+    }
+
+    /// Scroll the viewport back into history, saturating at the oldest line.
+    pub fn scroll_back(&mut self, lines: usize) {
+        self.viewport_offset = (self.viewport_offset + lines).min(self.max_scroll());
+    }
+
+    /// Scroll the viewport toward the live screen.
+    pub fn scroll_forward(&mut self, lines: usize) {
+        self.viewport_offset = self.viewport_offset.saturating_sub(lines);
+    }
+
+    pub const fn scroll_to_bottom(&mut self) {
+        self.viewport_offset = 0;
+    }
+
+    /// The cell at a viewport position, which may lie in scrollback.
+    ///
+    /// Everything that draws or selects reads through here. Terminal state — printing,
+    /// the cursor, erasing — always addresses the live screen and never this.
+    #[must_use]
+    pub fn display_cell(&self, row: usize, col: usize) -> Option<&Cell> {
+        if self.viewport_offset == 0 {
+            return self.cell(row, col);
+        }
+        // The viewport shows the last `offset` scrollback lines, then the screen.
+        let history = self.scrollback.len();
+        let first = history - self.viewport_offset;
+
+        if first + row < history {
+            self.scrollback.get(first + row)?.get(col)
+        } else {
+            self.lines.get(first + row - history)?.get(col)
+        }
+    }
+
+    /// The text of a viewport row, in logical order.
+    #[must_use]
+    pub fn display_row_text(&self, row: usize) -> String {
+        (0..self.cols)
+            .filter_map(|col| self.display_cell(row, col))
+            .filter_map(Cell::cluster)
+            .map(Cluster::text)
+            .collect()
+    }
+
+    /// Whether the viewport is showing the live screen, where the cursor lives.
+    #[must_use]
+    pub const fn is_at_bottom(&self) -> bool {
+        self.viewport_offset == 0
     }
 
     /// The text of a scrollback line, oldest first.
@@ -378,10 +446,18 @@ impl Grid {
             let evicted = self.lines.remove(self.region.top);
             // Only content leaving the top of the screen enters scrollback.
             if self.region.top == 0 && self.scrollback_limit > 0 {
-                if self.scrollback.len() == self.scrollback_limit {
+                let full = self.scrollback.len() == self.scrollback_limit;
+                if full {
                     self.scrollback.pop_front();
                 }
                 self.scrollback.push_back(evicted);
+
+                // A reader scrolled into history stays on the lines they are reading
+                // rather than being dragged along by new output. Once the oldest line
+                // falls off the end there is nothing left to hold on to.
+                if self.viewport_offset > 0 && !full {
+                    self.viewport_offset = (self.viewport_offset + 1).min(self.scrollback.len());
+                }
             }
             self.lines.insert(self.region.bottom, self.blank_line());
         }
@@ -582,6 +658,7 @@ impl Grid {
         }
 
         self.rows = rows;
+        self.viewport_offset = self.viewport_offset.min(self.scrollback.len());
         self.region = ScrollRegion {
             top: 0,
             bottom: rows - 1,

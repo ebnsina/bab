@@ -484,7 +484,9 @@ impl Renderer {
             let mut col = 0;
 
             while col < grid.cols() {
-                let Some(cell_data) = grid.cell(row, col) else {
+                // Read through the viewport, so scrolled-back history draws instead of
+                // the live screen sitting underneath it.
+                let Some(cell_data) = grid.display_cell(row, col) else {
                     col += 1;
                     continue;
                 };

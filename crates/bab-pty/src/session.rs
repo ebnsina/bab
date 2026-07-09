@@ -63,6 +63,12 @@ impl Session {
         &self.terminal
     }
 
+    /// The terminal, mutably. Scrolling the viewport is the only reason to reach for
+    /// this; output is applied by [`Session::pump`].
+    pub const fn terminal_mut(&mut self) -> &mut Terminal {
+        &mut self.terminal
+    }
+
     /// Whether the child has exited and all its output has been applied.
     #[must_use]
     pub const fn is_closed(&self) -> bool {
