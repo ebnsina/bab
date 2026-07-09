@@ -7,10 +7,12 @@
 pub mod attrs;
 pub mod cell;
 pub mod grid;
+pub mod modes;
 pub mod sgr;
 pub mod term;
 
 pub use attrs::{Attrs, Color, Flags};
 pub use cell::{Cell, CellContent, Cluster};
-pub use grid::{Cursor, Grid, LineErase, ScreenErase};
+pub use grid::{Cursor, Grid, LineErase, SavedCursor, ScreenErase};
+pub use modes::{Mode, Modes, MouseTracking};
 pub use term::Terminal;

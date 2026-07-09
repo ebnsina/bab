@@ -1,4 +1,6 @@
-//! The character grid: cursor, lines, and cluster placement.
+//! The character grid: cursor, lines, scrollback, and cluster placement.
+
+use std::collections::VecDeque;
 
 use crate::attrs::Attrs;
 use crate::cell::{Cell, CellContent, Cluster};
@@ -8,6 +10,13 @@ use crate::cell::{Cell, CellContent, Cluster};
 pub struct Cursor {
     pub row: usize,
     pub col: usize,
+}
+
+/// Cursor position and rendition, saved by `DECSC` and `CSI s`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct SavedCursor {
+    pub cursor: Cursor,
+    pub attrs: Attrs,
 }
 
 /// Which part of a line an erase applies to.
@@ -26,14 +35,27 @@ pub enum ScreenErase {
     All,
 }
 
-/// A fixed-size grid of cells with a cursor.
+/// The inclusive row range affected by scrolling, set by `DECSTBM`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct ScrollRegion {
+    top: usize,
+    bottom: usize,
+}
+
+/// A grid of cells with a cursor, a scroll region, and optional scrollback.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Grid {
     lines: Vec<Vec<Cell>>,
+    scrollback: VecDeque<Vec<Cell>>,
+    scrollback_limit: usize,
     cols: usize,
     rows: usize,
     cursor: Cursor,
+    saved_cursor: SavedCursor,
     attrs: Attrs,
+    region: ScrollRegion,
+    /// `DECAWM`. When false, printing at the right edge overwrites the last cell.
+    pub autowrap: bool,
     /// Head of the cluster most recently printed, if the next character could still
     /// extend it. Any cursor movement or erase invalidates this.
     open_cluster: Option<Cursor>,
@@ -41,15 +63,23 @@ pub struct Grid {
 
 impl Grid {
     #[must_use]
-    pub fn new(rows: usize, cols: usize) -> Self {
+    pub fn new(rows: usize, cols: usize, scrollback_limit: usize) -> Self {
         let rows = rows.max(1);
         let cols = cols.max(1);
         Self {
             lines: vec![vec![Cell::default(); cols]; rows],
+            scrollback: VecDeque::new(),
+            scrollback_limit,
             cols,
             rows,
             cursor: Cursor::default(),
+            saved_cursor: SavedCursor::default(),
             attrs: Attrs::default(),
+            region: ScrollRegion {
+                top: 0,
+                bottom: rows - 1,
+            },
+            autowrap: true,
             open_cluster: None,
         }
     }
@@ -78,6 +108,12 @@ impl Grid {
         self.lines.get(row)?.get(col)
     }
 
+    /// Lines scrolled off the top, oldest first.
+    #[must_use]
+    pub fn scrollback(&self) -> &VecDeque<Vec<Cell>> {
+        &self.scrollback
+    }
+
     /// The clusters on `row`, left to right.
     pub fn clusters(&self, row: usize) -> impl Iterator<Item = &Cluster> {
         self.lines
@@ -91,6 +127,18 @@ impl Grid {
     #[must_use]
     pub fn row_text(&self, row: usize) -> String {
         self.clusters(row).map(Cluster::text).collect()
+    }
+
+    /// The text of a scrollback line, oldest first.
+    #[must_use]
+    pub fn scrollback_text(&self, index: usize) -> Option<String> {
+        let line = self.scrollback.get(index)?;
+        Some(
+            line.iter()
+                .filter_map(Cell::cluster)
+                .map(Cluster::text)
+                .collect(),
+        )
     }
 
     // ---- printing ----------------------------------------------------------
@@ -142,7 +190,12 @@ impl Grid {
         let width = cluster.width() as usize;
 
         if self.cursor.col + width > self.cols {
-            self.wrap();
+            if self.autowrap {
+                self.wrap();
+            } else {
+                // With autowrap off the cursor pins to the last usable column.
+                self.cursor.col = self.cols.saturating_sub(width);
+            }
         }
 
         let at = self.cursor;
@@ -175,6 +228,7 @@ impl Grid {
     /// Overwriting half of a wide cluster must erase all of it, or the surviving
     /// continuation cells become orphans that render as stale glyph fragments.
     fn clear_span(&mut self, at: Cursor, width: usize) {
+        let attrs = self.attrs;
         let line = &mut self.lines[at.row];
 
         let mut start = at.col;
@@ -187,14 +241,59 @@ impl Grid {
             end += 1;
         }
 
-        let attrs = self.attrs;
         for cell in &mut line[start..end] {
             cell.clear(attrs);
         }
     }
 
+    /// Clear clusters that lost their span, after cells were shifted or truncated.
+    ///
+    /// Shifting cells can leave a head whose continuations were displaced, or a
+    /// continuation whose head is gone. Both must be erased, not rendered.
+    fn repair_line(&mut self, row: usize) {
+        let cols = self.cols;
+        let line = &mut self.lines[row];
+        let mut col = 0;
+
+        while col < cols {
+            let width = match &line[col].content {
+                CellContent::Head(cluster) => cluster.width() as usize,
+                // Reaching a continuation here means no head claimed it.
+                CellContent::Continuation => {
+                    line[col].content = CellContent::Empty;
+                    col += 1;
+                    continue;
+                }
+                CellContent::Empty => {
+                    col += 1;
+                    continue;
+                }
+            };
+
+            let intact = col + width <= cols
+                && (col + 1..col + width).all(|i| line[i].content == CellContent::Continuation);
+
+            if intact {
+                col += width;
+            } else {
+                line[col].content = CellContent::Empty;
+                col += 1;
+            }
+        }
+    }
+
     fn content_at(&self, at: Cursor) -> Option<&CellContent> {
         Some(&self.lines.get(at.row)?.get(at.col)?.content)
+    }
+
+    fn blank_line(&self) -> Vec<Cell> {
+        vec![
+            Cell {
+                content: CellContent::Empty,
+                attrs: self.attrs
+            };
+            self.cols
+        ]
     }
 
     // ---- cursor and control functions --------------------------------------
@@ -206,10 +305,20 @@ impl Grid {
 
     pub fn linefeed(&mut self) {
         self.open_cluster = None;
-        if self.cursor.row + 1 == self.rows {
-            self.scroll_up();
-        } else {
+        if self.cursor.row == self.region.bottom {
+            self.scroll_up(1);
+        } else if self.cursor.row + 1 < self.rows {
             self.cursor.row += 1;
+        }
+    }
+
+    /// Reverse index: move up, scrolling the region down at the top margin.
+    pub fn reverse_linefeed(&mut self) {
+        self.open_cluster = None;
+        if self.cursor.row == self.region.top {
+            self.scroll_down(1);
+        } else {
+            self.cursor.row = self.cursor.row.saturating_sub(1);
         }
     }
 
@@ -230,10 +339,62 @@ impl Grid {
         self.cursor.col = next.min(self.cols - 1);
     }
 
-    fn scroll_up(&mut self) {
-        self.lines.rotate_left(1);
-        if let Some(last) = self.lines.last_mut() {
-            last.fill(Cell::default());
+    pub fn save_cursor(&mut self) {
+        self.saved_cursor = SavedCursor {
+            cursor: self.cursor,
+            attrs: self.attrs,
+        };
+    }
+
+    pub fn restore_cursor(&mut self) {
+        self.open_cluster = None;
+        let saved = self.saved_cursor;
+        self.attrs = saved.attrs;
+        self.cursor = Cursor {
+            row: saved.cursor.row.min(self.rows - 1),
+            col: saved.cursor.col.min(self.cols - 1),
+        };
+    }
+
+    /// Set the scroll region from inclusive, zero-indexed rows. Homes the cursor.
+    pub fn set_scroll_region(&mut self, top: usize, bottom: usize) {
+        if top >= bottom || bottom >= self.rows {
+            self.region = ScrollRegion {
+                top: 0,
+                bottom: self.rows - 1,
+            };
+        } else {
+            self.region = ScrollRegion { top, bottom };
+        }
+        self.goto(0, 0);
+    }
+
+    /// Scroll the region up by `n`, moving evicted lines into scrollback.
+    pub fn scroll_up(&mut self, n: usize) {
+        self.open_cluster = None;
+        let n = n.min(self.region.bottom - self.region.top + 1);
+
+        for _ in 0..n {
+            let evicted = self.lines.remove(self.region.top);
+            // Only content leaving the top of the screen enters scrollback.
+            if self.region.top == 0 && self.scrollback_limit > 0 {
+                if self.scrollback.len() == self.scrollback_limit {
+                    self.scrollback.pop_front();
+                }
+                self.scrollback.push_back(evicted);
+            }
+            self.lines.insert(self.region.bottom, self.blank_line());
+        }
+    }
+
+    /// Scroll the region down by `n`. Scrollback is not consulted.
+    pub fn scroll_down(&mut self, n: usize) {
+        self.open_cluster = None;
+        let n = n.min(self.region.bottom - self.region.top + 1);
+
+        for _ in 0..n {
+            self.lines.remove(self.region.bottom);
+            self.lines.insert(self.region.top, self.blank_line());
         }
     }
 
@@ -266,6 +427,81 @@ impl Grid {
         self.cursor.col = (self.cursor.col + n).min(self.cols - 1);
     }
 
+    // ---- editing -----------------------------------------------------------
+
+    /// `IL`. Insert `n` blank lines at the cursor, within the scroll region.
+    pub fn insert_lines(&mut self, n: usize) {
+        self.open_cluster = None;
+        if !self.cursor_in_region() {
+            return;
+        }
+        let n = n.min(self.region.bottom - self.cursor.row + 1);
+        for _ in 0..n {
+            self.lines.remove(self.region.bottom);
+            self.lines.insert(self.cursor.row, self.blank_line());
+        }
+    }
+
+    /// `DL`. Delete `n` lines at the cursor, within the scroll region.
+    pub fn delete_lines(&mut self, n: usize) {
+        self.open_cluster = None;
+        if !self.cursor_in_region() {
+            return;
+        }
+        let n = n.min(self.region.bottom - self.cursor.row + 1);
+        for _ in 0..n {
+            self.lines.remove(self.cursor.row);
+            self.lines.insert(self.region.bottom, self.blank_line());
+        }
+    }
+
+    /// `ICH`. Shift the rest of the line right by `n`, inserting blanks.
+    pub fn insert_chars(&mut self, n: usize) {
+        self.open_cluster = None;
+        let (row, col) = (self.cursor.row, self.cursor.col);
+        let n = n.min(self.cols - col);
+        let attrs = self.attrs;
+
+        let line = &mut self.lines[row];
+        line[col..].rotate_right(n);
+        for cell in &mut line[col..col + n] {
+            cell.clear(attrs);
+        }
+        self.repair_line(row);
+    }
+
+    /// `DCH`. Shift the rest of the line left by `n`, filling with blanks.
+    pub fn delete_chars(&mut self, n: usize) {
+        self.open_cluster = None;
+        let (row, col) = (self.cursor.row, self.cursor.col);
+        let n = n.min(self.cols - col);
+        let attrs = self.attrs;
+
+        let line = &mut self.lines[row];
+        line[col..].rotate_left(n);
+        for cell in &mut line[self.cols - n..] {
+            cell.clear(attrs);
+        }
+        self.repair_line(row);
+    }
+
+    /// `ECH`. Blank `n` cells at the cursor without shifting.
+    pub fn erase_chars(&mut self, n: usize) {
+        self.open_cluster = None;
+        let (row, col) = (self.cursor.row, self.cursor.col);
+        let end = (col + n).min(self.cols);
+        let attrs = self.attrs;
+
+        for cell in &mut self.lines[row][col..end] {
+            cell.clear(attrs);
+        }
+        self.repair_line(row);
+    }
+
+    const fn cursor_in_region(&self) -> bool {
+        self.cursor.row >= self.region.top && self.cursor.row <= self.region.bottom
+    }
+
     // ---- erasing -----------------------------------------------------------
 
     pub fn erase_line(&mut self, mode: LineErase) {
@@ -279,6 +515,7 @@ impl Grid {
         for cell in &mut self.lines[self.cursor.row][start..end.min(self.cols)] {
             cell.clear(attrs);
         }
+        self.repair_line(self.cursor.row);
     }
 
     pub fn erase_screen(&mut self, mode: ScreenErase) {
@@ -300,5 +537,56 @@ impl Grid {
                 cell.clear(attrs);
             }
         }
+    }
+
+    // ---- resize ------------------------------------------------------------
+
+    /// Resize the grid, preserving content anchored at the top-left.
+    ///
+    /// Lines are not reflowed: a narrower grid truncates rather than rewrapping.
+    pub fn resize(&mut self, rows: usize, cols: usize) {
+        let rows = rows.max(1);
+        let cols = cols.max(1);
+        if (rows, cols) == (self.rows, self.cols) {
+            return;
+        }
+        self.open_cluster = None;
+
+        if cols != self.cols {
+            self.cols = cols;
+            for line in &mut self.lines {
+                line.resize(cols, Cell::default());
+            }
+            for row in 0..self.lines.len() {
+                self.repair_line(row);
+            }
+        }
+
+        while self.lines.len() > rows {
+            // Rows lost from the bottom first, so the cursor's context survives.
+            if self.cursor.row < self.lines.len() - 1 {
+                self.lines.pop();
+            } else {
+                let evicted = self.lines.remove(0);
+                if self.scrollback_limit > 0 {
+                    if self.scrollback.len() == self.scrollback_limit {
+                        self.scrollback.pop_front();
+                    }
+                    self.scrollback.push_back(evicted);
+                }
+                self.cursor.row = self.cursor.row.saturating_sub(1);
+            }
+        }
+        while self.lines.len() < rows {
+            self.lines.push(vec![Cell::default(); cols]);
+        }
+
+        self.rows = rows;
+        self.region = ScrollRegion {
+            top: 0,
+            bottom: rows - 1,
+        };
+        self.cursor.row = self.cursor.row.min(rows - 1);
+        self.cursor.col = self.cursor.col.min(cols - 1);
     }
 }
