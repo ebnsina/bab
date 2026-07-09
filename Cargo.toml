@@ -11,6 +11,7 @@ repository = "https://github.com/ebnsina/bab"
 
 [workspace.dependencies]
 bab-input = { path = "crates/bab-input" }
+bab-pty = { path = "crates/bab-pty" }
 bab-text = { path = "crates/bab-text" }
 bab-vt = { path = "crates/bab-vt" }
 

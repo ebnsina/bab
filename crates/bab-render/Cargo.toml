@@ -18,6 +18,7 @@ swash.workspace = true
 wgpu.workspace = true
 
 [dev-dependencies]
+bab-pty.workspace = true
 png = "0.18"
 
 [lints]
