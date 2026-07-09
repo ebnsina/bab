@@ -10,9 +10,9 @@ use bytemuck::{Pod, Zeroable};
 use crate::atlas::{Atlas, GlyphKey};
 use crate::palette::Palette;
 use crate::raster::Rasterizer;
+use crate::target::{Frame, Target};
 
 const ATLAS_SIZE: u32 = 2048;
-const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 /// `copy_texture_to_buffer` requires each row to start on this boundary.
 const COPY_ALIGNMENT: u32 = 256;
 
@@ -84,8 +84,7 @@ pub struct Renderer {
     instances: wgpu::Buffer,
     instance_capacity: usize,
 
-    target: wgpu::Texture,
-    target_view: wgpu::TextureView,
+    target: Target,
     width: u32,
     height: u32,
 
@@ -115,6 +114,48 @@ impl Renderer {
     /// Fails when no GPU adapter is available, which is the normal situation in CI
     /// without a software rasterizer. Callers should skip rather than panic.
     pub fn new(width: u32, height: u32, fonts: FontStack, font_size: f32) -> Result<Self> {
+        Self::build(width, height, fonts, font_size, |_, _, device| {
+            Ok(Target::offscreen(device, width, height))
+        })
+    }
+
+    /// Build a renderer drawing into a `CAMetalLayer`.
+    ///
+    /// # Safety
+    ///
+    /// `layer` must be a valid, retained `CAMetalLayer` that outlives the renderer.
+    #[cfg(target_os = "macos")]
+    pub unsafe fn new_for_metal_layer(
+        layer: *mut std::ffi::c_void,
+        width: u32,
+        height: u32,
+        fonts: FontStack,
+        font_size: f32,
+    ) -> Result<Self> {
+        Self::build(
+            width,
+            height,
+            fonts,
+            font_size,
+            |instance, adapter, device| {
+                // SAFETY: the caller guarantees the layer is valid and outlives us.
+                let surface = unsafe {
+                    instance
+                        .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::CoreAnimationLayer(layer))
+                }
+                .context("failed to create a surface from the layer")?;
+                Target::surface(surface, adapter, device, width, height)
+            },
+        )
+    }
+
+    fn build(
+        width: u32,
+        height: u32,
+        fonts: FontStack,
+        font_size: f32,
+        make_target: impl FnOnce(&wgpu::Instance, &wgpu::Adapter, &wgpu::Device) -> Result<Target>,
+    ) -> Result<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::LowPower,
@@ -131,7 +172,7 @@ impl Renderer {
         let metrics = GridMetrics::measure(&fonts, font_size)?;
         let atlas = Atlas::new(&device, &queue, ATLAS_SIZE);
 
-        let (target, target_view) = create_target(&device, width, height);
+        let target = make_target(&instance, &adapter, &device)?;
 
         let globals = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("bab globals"),
@@ -208,7 +249,7 @@ impl Renderer {
             ],
         });
 
-        let pipeline = create_pipeline(&device, &layout);
+        let pipeline = create_pipeline(&device, &layout, target.format());
 
         let instance_capacity = 4096;
         let instances = create_instance_buffer(&device, instance_capacity);
@@ -222,7 +263,6 @@ impl Renderer {
             instances,
             instance_capacity,
             target,
-            target_view,
             width,
             height,
             atlas,
@@ -253,9 +293,7 @@ impl Renderer {
             return;
         }
 
-        let (target, target_view) = create_target(&self.device, width, height);
-        self.target = target;
-        self.target_view = target_view;
+        self.target.resize(&self.device, width, height);
         self.width = width;
         self.height = height;
 
@@ -278,11 +316,12 @@ impl Renderer {
         )
     }
 
-    /// Draw `grid` into the offscreen texture, with an optional cursor.
+    /// Draw `grid` into the target, with an optional cursor. Presents when windowed.
     pub fn render(&mut self, grid: &Grid, cursor: Option<CursorState>) -> Result<()> {
         let instances = self.build_instances(grid, cursor)?;
         self.upload_instances(&instances);
 
+        let frame = self.target.acquire(&self.device)?;
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
@@ -291,7 +330,7 @@ impl Renderer {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("bab pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.target_view,
+                    view: frame.view(),
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -319,6 +358,9 @@ impl Renderer {
         }
 
         self.queue.submit([encoder.finish()]);
+        if let Frame::Surface { texture, .. } = frame {
+            self.queue.present(texture);
+        }
         Ok(())
     }
 
@@ -446,7 +488,12 @@ impl Renderer {
     }
 
     /// Read the target back as tightly packed RGBA8, row-major.
+    ///
+    /// Only an offscreen target can be read back; a presented surface texture is gone.
     pub fn read_pixels(&self) -> Result<Vec<u8>> {
+        let Target::Offscreen { texture, .. } = &self.target else {
+            anyhow::bail!("only an offscreen renderer can read pixels back");
+        };
         let unpadded = self.width * 4;
         let padded = unpadded.div_ceil(COPY_ALIGNMENT) * COPY_ALIGNMENT;
 
@@ -462,7 +509,7 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture: &self.target,
+                texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
@@ -542,29 +589,6 @@ fn cursor_instances(
     }]
 }
 
-fn create_target(
-    device: &wgpu::Device,
-    width: u32,
-    height: u32,
-) -> (wgpu::Texture, wgpu::TextureView) {
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("bab target"),
-        size: wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: TARGET_FORMAT,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-    });
-    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    (texture, view)
-}
-
 fn create_instance_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("bab instances"),
@@ -574,7 +598,11 @@ fn create_instance_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffe
     })
 }
 
-fn create_pipeline(device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> wgpu::RenderPipeline {
+fn create_pipeline(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    format: wgpu::TextureFormat,
+) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("bab shader"),
         source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
@@ -604,7 +632,7 @@ fn create_pipeline(device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> wgp
             entry_point: Some("fs_main"),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             targets: &[Some(wgpu::ColorTargetState {
-                format: TARGET_FORMAT,
+                format,
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                 write_mask: wgpu::ColorWrites::ALL,
             })],

@@ -36,17 +36,27 @@ crates/bab-pty     pseudoterminal · session        done
 crates/bab-text    shaping · font fallback         done
 crates/bab-render  wgpu renderer · glyph atlas     done
 crates/bab-input   keyboard · mouse encoding       done
+crates/libbab      C ABI over the core             done
+apps/macos         AppKit shell                    done
 crates/bab-theme   theme import · OS-follow
 crates/bab-ssh     ssh client and host manager
 crates/bab-vfs     local and remote file browsing
-apps/              AppKit · GTK4 · WinUI3 shells
+apps/linux         GTK4 shell
+apps/windows       WinUI3 shell
 ```
 
 ## Build
 
 ```sh
-cargo test
+cargo test                    # the core, headless
+./apps/macos/build.sh         # the macOS app
+open target/debug/bab.app
 ```
+
+Run `target/debug/bab.app/Contents/MacOS/bab` directly to see stderr.
+
+The core is a plain Rust library behind a flat C ABI (`crates/libbab/include/bab.h`). One header
+serves AppKit, GTK4, and WinUI3, so the terminal is written once and the window three times.
 
 ## Fonts
 

@@ -8,6 +8,7 @@ pub mod atlas;
 pub mod palette;
 pub mod raster;
 pub mod renderer;
+mod target;
 
 pub use atlas::{Atlas, AtlasEntry, GlyphKey};
 pub use palette::Palette;

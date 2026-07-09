@@ -1,0 +1,23 @@
+[package]
+name = "libbab"
+description = "C ABI over the bab terminal core, for native UI shells"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "bab"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+anyhow.workspace = true
+bab-input.workspace = true
+bab-pty.workspace = true
+bab-render.workspace = true
+bab-text.workspace = true
+bab-vt.workspace = true
+
+[lints]
+workspace = true

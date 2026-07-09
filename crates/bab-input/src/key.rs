@@ -11,6 +11,12 @@ impl Modifiers {
     pub const CONTROL: Self = Self(1 << 2);
     pub const SUPER: Self = Self(1 << 3);
 
+    /// Build from a raw bitmask, ignoring bits we do not define.
+    #[must_use]
+    pub const fn from_bits(bits: u8) -> Self {
+        Self(bits & 0b1111)
+    }
+
     #[must_use]
     pub const fn contains(self, other: Self) -> bool {
         self.0 & other.0 == other.0
