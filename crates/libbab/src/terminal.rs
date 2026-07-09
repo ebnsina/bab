@@ -10,7 +10,7 @@ use bab_text::{Face, FontStack};
 
 /// Fonts are embedded so the binary never depends on where it was installed from,
 /// and so the Bengali fallback can never go missing on a user's machine.
-const GEIST_MONO: &[u8] = include_bytes!("../../../assets/fonts/GeistMono-Regular.ttf");
+const FIRA_CODE: &[u8] = include_bytes!("../../../assets/fonts/FiraCodeNerdFontMono-Regular.ttf");
 const NOTO_BENGALI: &[u8] = include_bytes!("../../../assets/fonts/NotoSansBengali-Regular.ttf");
 
 /// Font size in points. Physical pixels are this times the display's scale factor.
@@ -38,7 +38,7 @@ impl Terminal {
         scale: f32,
     ) -> Result<Self> {
         let fonts = FontStack::new(vec![
-            Face::new("Geist Mono", Arc::new(GEIST_MONO.to_vec()))?,
+            Face::new("Fira Code Nerd Font Mono", Arc::new(FIRA_CODE.to_vec()))?,
             Face::new("Noto Sans Bengali", Arc::new(NOTO_BENGALI.to_vec()))?,
         ])?;
 

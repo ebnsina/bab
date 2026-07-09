@@ -10,7 +10,7 @@ use std::sync::Arc;
 use bab_text::{Face, FontStack, HarfRustShaper, Shaper};
 
 const BENGALI: &str = "NotoSansBengali-Regular.ttf";
-const MONO: &str = "GeistMono-Regular.ttf";
+const MONO: &str = "FiraCodeNerdFontMono-Regular.ttf";
 
 fn load(file: &str) -> Face {
     let path: PathBuf = [
@@ -27,7 +27,7 @@ fn load(file: &str) -> Face {
     Face::new(file, Arc::new(bytes)).expect("parsing font")
 }
 
-/// Geist Mono first, Noto Sans Bengali behind it: the shipped default chain.
+/// Fira Code first, Noto Sans Bengali behind it: the shipped default chain.
 fn stack() -> FontStack {
     FontStack::new(vec![load(MONO), load(BENGALI)]).unwrap()
 }
@@ -39,13 +39,20 @@ fn shape(cluster: &str, face: &Face) -> bab_text::ShapedCluster {
 // ---- fallback --------------------------------------------------------------
 
 /// The premise of the whole font chain: our default mono face has no Bengali.
+///
+/// It does carry Nerd Font icons, which is why prompts render their glyphs rather
+/// than tofu.
 #[test]
-fn geist_mono_has_no_bengali() {
+fn the_mono_face_has_icons_but_no_bengali() {
     let mono = load(MONO);
     assert!(mono.has_glyph('a'));
     assert!(
-        !mono.has_glyph('ব'),
-        "Geist Mono unexpectedly covers Bengali"
+        mono.has_glyph('\u{e0b0}'),
+        "expected a Nerd Font powerline glyph"
+    );
+    assert!(
+        !mono.has_glyph('\u{09ac}'),
+        "the mono face unexpectedly covers Bengali"
     );
 }
 

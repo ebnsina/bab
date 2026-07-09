@@ -48,7 +48,7 @@ fn main() -> anyhow::Result<()> {
     session.pump()?;
 
     let fonts = FontStack::new(vec![
-        load("GeistMono-Regular.ttf"),
+        load("FiraCodeNerdFontMono-Regular.ttf"),
         load("NotoSansBengali-Regular.ttf"),
     ])?;
     let mut renderer = Renderer::new(16, 16, fonts, 18.0)?;

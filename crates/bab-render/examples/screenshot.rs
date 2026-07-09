@@ -28,7 +28,7 @@ fn main() -> anyhow::Result<()> {
     let (width, height) = (560, 150);
 
     let fonts = FontStack::new(vec![
-        load("GeistMono-Regular.ttf"),
+        load("FiraCodeNerdFontMono-Regular.ttf"),
         load("NotoSansBengali-Regular.ttf"),
     ])?;
     let mut renderer = Renderer::new(width, height, fonts, 18.0)?;
@@ -38,7 +38,7 @@ fn main() -> anyhow::Result<()> {
     terminal.feed("প্রধানমন্ত্রী তারেক রহমান\r\n".as_bytes());
     terminal.feed("বাংলা ব্ল ক্ষ কি র্ক\r\n".as_bytes());
     terminal.feed("\x1b[7m reverse \x1b[0m \x1b[38;2;255;120;60mtruecolor\x1b[0m\r\n".as_bytes());
-    terminal.feed("ligatures: => != ->  wide: 世界\r\n".as_bytes());
+    terminal.feed("ligatures: => != -> <=>   icons: \u{e0b0} \u{f07c} \u{e702}\r\n".as_bytes());
     terminal.feed(b"\x1b[2 q$ ");
 
     renderer.render(

@@ -29,7 +29,7 @@ fn load(file: &str) -> Face {
 
 fn fonts() -> FontStack {
     FontStack::new(vec![
-        load("GeistMono-Regular.ttf"),
+        load("FiraCodeNerdFontMono-Regular.ttf"),
         load("NotoSansBengali-Regular.ttf"),
     ])
     .unwrap()
