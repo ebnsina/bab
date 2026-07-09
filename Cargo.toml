@@ -13,7 +13,9 @@ repository = "https://github.com/ebnsina/bab"
 bab-vt = { path = "crates/bab-vt" }
 
 anyhow = "1"
+harfrust = "0.12"
 portable-pty = "0.9"
+skrifa = "0.44"
 unicode-segmentation = "1.12"
 unicode-width = "0.2"
 vte = "0.15"

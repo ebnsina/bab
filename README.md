@@ -45,6 +45,22 @@ apps/            AppKit · GTK4 · WinUI3 shells
 cargo test
 ```
 
+## Fonts
+
+`bab` bundles its fallback chain rather than trusting system font fallback, which resolves
+differently on every machine. Defaults are Geist Mono for the grid and Mona Sans for UI chrome, both
+configurable.
+
+Geist Mono covers Latin, Greek, and Cyrillic — it has no Bengali glyphs at all. Noto Sans Bengali
+sits behind it in the chain, which is why the chain is a component and not a convenience.
+
+| Font | Copyright | License |
+|---|---|---|
+| [Geist Mono](https://github.com/vercel/geist-font) | 2024 The Geist Project Authors | SIL OFL 1.1 |
+| [Noto Sans Bengali](https://github.com/notofonts/bengali) | 2022 The Noto Project Authors | SIL OFL 1.1 |
+
+License texts live beside the fonts in `assets/fonts/`.
+
 ## License
 
 Apache-2.0

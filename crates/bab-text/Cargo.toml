@@ -1,0 +1,16 @@
+[package]
+name = "bab-text"
+description = "Complex-script shaping and font fallback for a cell grid"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+harfrust.workspace = true
+skrifa.workspace = true
+
+[lints]
+workspace = true
