@@ -387,10 +387,14 @@ impl Renderer {
         cursor: Option<CursorState>,
         selection: Option<&Selection>,
     ) -> Result<()> {
+        let Some(frame) = self.target.acquire(&self.device)? else {
+            // The window is hidden or the compositor is not ready. Skip the frame.
+            return Ok(());
+        };
+
         let instances = self.build_instances(grid, cursor, selection)?;
         self.upload_instances(&instances);
 
-        let frame = self.target.acquire(&self.device)?;
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });

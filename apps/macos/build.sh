@@ -50,6 +50,7 @@ swiftc \
   -framework AppKit -framework Metal -framework QuartzCore \
   -lobjc \
   "$ROOT/apps/macos/Sources/TerminalView.swift" \
+  "$ROOT/apps/macos/Sources/TerminalWindow.swift" \
   "$ROOT/apps/macos/Sources/main.swift"
 
 echo "==> $APP"

@@ -64,7 +64,7 @@ final class TerminalView: NSView {
             Unmanaged.passUnretained(layer).toOpaque(), width, height, Float(backingScale))
 
         if terminal == nil {
-            presentFailureAndExit()
+            presentFailureAndClose()
             return
         }
 
@@ -109,15 +109,17 @@ final class TerminalView: NSView {
     private func tick() {
         guard let terminal else { return }
         if !bab_terminal_frame(terminal) {
+            // Close this tab, not the application. With one window they look the same;
+            // with several, terminating would take everyone else's shell down too.
             teardown()
-            NSApp.terminate(nil)
+            window?.performClose(nil)
             return
         }
         syncTitle()
     }
 
-    /// Applications set the title with OSC 2. A window that never renames itself is
-    /// one of the small things that makes a terminal feel unfinished.
+    /// Applications set the title with OSC 2. The window title is also the tab title,
+    /// so a tab that never renames itself is a tab you cannot tell apart from the rest.
     private func syncTitle() {
         guard let terminal, let raw = bab_terminal_title(terminal) else { return }
         let title = String(cString: raw)
@@ -139,12 +141,12 @@ final class TerminalView: NSView {
         teardown()
     }
 
-    private func presentFailureAndExit() {
+    private func presentFailureAndClose() {
         let alert = NSAlert()
         alert.messageText = "bab could not start"
         alert.informativeText = "No GPU adapter, or the shell failed to spawn."
         alert.runModal()
-        NSApp.terminate(nil)
+        window?.performClose(nil)
     }
 
     // MARK: - Focus

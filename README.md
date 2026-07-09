@@ -51,6 +51,20 @@ apps/linux         GTK4 shell
 apps/windows       WinUI3 shell
 ```
 
+## Keys
+
+| | |
+|---|---|
+| `Cmd-T` | new tab |
+| `Cmd-N` | new window |
+| `Cmd-W` | close |
+| `Cmd-C` / `Cmd-V` | copy · paste |
+| drag, double-click, triple-click | select cells · word · line |
+| shift-drag | select while an application owns the mouse |
+| scroll | scrollback, or arrow keys on the alternate screen |
+
+Tabs are macOS's own, so tab dragging, the tab overview, and `Cmd-Shift-[` / `]` all work.
+
 ## Configure
 
 Copy `bab.example.toml` to `~/.config/bab/bab.toml`, or point `$BAB_CONFIG` at it. Every key is

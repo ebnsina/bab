@@ -107,14 +107,15 @@ impl Target {
         }
     }
 
-    /// Acquire the next frame.
+    /// Acquire the next frame, or `None` when there is nothing to draw into.
     ///
-    /// A surface can hand back an outdated or lost texture when the window resizes or
-    /// the display changes. Reconfiguring and retrying once is the standard recovery;
-    /// anything else is a real error.
-    pub(crate) fn acquire(&mut self, device: &wgpu::Device) -> Result<Frame> {
+    /// A hidden or occluded window has no drawable, and a compositor may briefly hand
+    /// back nothing while it catches up. Neither is an error: the frame is skipped.
+    /// A surface that went outdated or lost is reconfigured and retried once, which is
+    /// what a resize or a display change looks like from here.
+    pub(crate) fn acquire(&mut self, device: &wgpu::Device) -> Result<Option<Frame>> {
         let (surface, config) = match self {
-            Self::Offscreen { view, .. } => return Ok(Frame::Offscreen(view.clone())),
+            Self::Offscreen { view, .. } => return Ok(Some(Frame::Offscreen(view.clone()))),
             Self::Surface { surface, config } => (surface, config),
         };
 
@@ -125,21 +126,21 @@ impl Target {
                     let view = texture
                         .texture
                         .create_view(&wgpu::TextureViewDescriptor::default());
-                    return Ok(Frame::Surface { texture, view });
+                    return Ok(Some(Frame::Surface { texture, view }));
                 }
                 wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost
                     if attempt == 0 =>
                 {
                     surface.configure(device, config);
                 }
-                wgpu::CurrentSurfaceTexture::Timeout => bail!("timed out acquiring a frame"),
-                // The window is hidden. There is nothing to draw, and that is not a bug.
-                wgpu::CurrentSurfaceTexture::Occluded => bail!("surface is occluded"),
-                wgpu::CurrentSurfaceTexture::Outdated => bail!("surface is still outdated"),
-                wgpu::CurrentSurfaceTexture::Lost => bail!("surface was lost"),
+                // Nothing to draw into, and nothing wrong.
+                wgpu::CurrentSurfaceTexture::Occluded
+                | wgpu::CurrentSurfaceTexture::Timeout
+                | wgpu::CurrentSurfaceTexture::Outdated
+                | wgpu::CurrentSurfaceTexture::Lost => return Ok(None),
                 wgpu::CurrentSurfaceTexture::Validation => bail!("surface validation failed"),
             }
         }
-        bail!("could not acquire a frame after reconfiguring the surface")
+        Ok(None)
     }
 }
