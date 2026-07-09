@@ -3,8 +3,7 @@
 //! These tests encode `docs/adr/0001-width-contract.md`. If one fails, either the
 //! grid disagrees with what a TUI application computed, or a cluster was split.
 
-use bab_vt::{CellContent, Terminal};
-use unicode_width::UnicodeWidthStr;
+use bab_vt::{CellContent, Terminal, cluster_cells};
 
 /// Bengali: ব + hasant + ল forms one conjunct glyph.
 const BANGLA_CONJUNCT: &str = "ব্ল";
@@ -38,6 +37,9 @@ fn bangla_word_round_trips() {
 
 /// The load-bearing invariant. The cells the grid allocates must equal the cells a
 /// TUI application allocated with `wcwidth` — otherwise the cursor drifts.
+///
+/// `tests/wcwidth.rs` checks `cluster_cells` against the system function; this checks
+/// that the grid actually allocates what `cluster_cells` says.
 #[test]
 fn allocated_width_matches_wcwidth() {
     for text in [BANGLA_CONJUNCT, BANGLA_WORD, "hello", "世界", "héllo", "🇧🇩"] {
@@ -47,7 +49,11 @@ fn allocated_width_matches_wcwidth() {
             .clusters(0)
             .map(|c| usize::from(c.width()))
             .sum();
-        assert_eq!(allocated, text.width(), "width mismatch for {text:?}");
+        assert_eq!(
+            allocated,
+            cluster_cells(text),
+            "width mismatch for {text:?}"
+        );
     }
 }
 

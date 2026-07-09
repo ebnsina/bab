@@ -10,9 +10,11 @@ pub mod grid;
 pub mod modes;
 pub mod sgr;
 pub mod term;
+pub mod width;
 
 pub use attrs::{Attrs, Color, Flags};
 pub use cell::{Cell, CellContent, Cluster};
 pub use grid::{Cursor, Grid, LineErase, SavedCursor, ScreenErase};
 pub use modes::{CursorShape, CursorStyle, Mode, Modes, MouseTracking};
 pub use term::Terminal;
+pub use width::{char_cells, cluster_cells};

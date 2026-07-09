@@ -3,14 +3,14 @@
 //! A cell holds a whole grapheme cluster, not a codepoint. `ব` + `্` + `ল` is three
 //! codepoints, one cluster, and one conjunct glyph — so it must live in one cell.
 //!
-//! Cell *width* is decided by [`unicode_width`], never by the shaper. See
+//! Cell *width* is decided by [`crate::width`], never by the shaper. See
 //! `docs/adr/0001-width-contract.md`: the grid allocates exactly the cells a TUI app
-//! computed with `wcwidth()`, and shaping is confined to rendering within that span.
+//! computed with `wcwidth()`, and shaping is confined to rendering.
 
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::attrs::Attrs;
+use crate::width::{char_cells, cluster_cells};
 
 /// A grapheme cluster occupying one or more cells.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -24,7 +24,7 @@ impl Cluster {
     /// of its own (an orphan combining mark with no base to attach to).
     #[must_use]
     pub fn from_char(c: char) -> Option<Self> {
-        let width = u16::try_from(c.width()?).ok()?;
+        let width = u16::try_from(char_cells(c)).ok()?;
         (width > 0).then(|| Self {
             text: c.to_string(),
             width,
@@ -55,7 +55,9 @@ impl Cluster {
             return None;
         }
 
-        let width = u16::try_from(candidate.width()).unwrap_or(u16::MAX).max(1);
+        let width = u16::try_from(cluster_cells(&candidate))
+            .unwrap_or(u16::MAX)
+            .max(1);
         self.text = candidate;
         self.width = width;
         Some(width)

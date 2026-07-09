@@ -24,6 +24,7 @@ pollster = "0.4"
 portable-pty = "0.9"
 skrifa = "0.44"
 swash = "0.2"
+unicode-properties = { version = "0.1", features = ["general-category"] }
 unicode-segmentation = "1.12"
 unicode-width = "0.2"
 vte = "0.15"
